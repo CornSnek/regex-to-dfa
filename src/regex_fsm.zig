@@ -565,7 +565,10 @@ pub const RegexFSM = struct {
     substate_machines: std.ArrayListUnmanaged(SubStateMachine) = .{},
     pub fn init(allocator: std.mem.Allocator) !RegexFSM {
         var self: RegexFSM = .{ .allocator = allocator };
-        try self.states.append(allocator, .{ .id = RegexState.ErrorState });
+        try self.states.ensureUnusedCapacity(allocator, 2);
+        self.states.appendAssumeCapacity(.{ .id = RegexState.ErrorState });
+        self.states.appendAssumeCapacity(.{ .id = 1, .accept = true }); //Empty NFA used to concatenate the first expression.
+        try self.substate_machines.append(allocator, .{ .init = 1, .accept = .{ .NFA = 1 } });
         return self;
     }
     pub fn add_datatype(self: *RegexFSM, dt: DataType) !void {
@@ -900,8 +903,10 @@ pub const RegexFSM = struct {
         }
         var new_accept: std.ArrayListUnmanaged(u32) = .{};
         defer new_accept.deinit(self.allocator);
-        for (self.states.items) |state|
-            if (state.accept) try new_accept.append(self.allocator, state.id);
+        const merged_states2 = try self.get_reachable_states(.DFA, &.{ssm.init});
+        defer self.allocator.free(merged_states2);
+        for (merged_states2) |state_i|
+            if (self.states.items[state_i].accept) try new_accept.append(self.allocator, state_i);
         const new_accept_str = try new_accept.toOwnedSlice(self.allocator);
         ssm.deinit(self.allocator);
         ssm.accept = .{ .DFA = new_accept_str };
@@ -1358,11 +1363,8 @@ test "RegexState" {
     var rfsm: RegexFSM = try RegexFSM.init(std.testing.allocator);
     defer rfsm.deinit();
     try rfsm.add_datatype(.{ .range = .{ .min = 'A', .max = 'B' } });
-    try rfsm.add_datatype(.{ .unicode = 'C' });
-    try rfsm.add_datatype(.{ .unicode = 'D' });
+    try rfsm.kleene_star();
     try rfsm.concatenation();
-    try rfsm.concatenation();
-    try rfsm.repetition_between(2, 3);
     std.debug.print(ESC("Sub state machines: {any}\n", .{1}), .{rfsm.substate_machines.items});
     for (rfsm.states.items) |state| std.debug.print("{}\n", .{state});
     try rfsm.nfa_to_dfa();
