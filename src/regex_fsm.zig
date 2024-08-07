@@ -567,9 +567,12 @@ pub const RegexFSM = struct {
         var self: RegexFSM = .{ .allocator = allocator };
         try self.states.ensureUnusedCapacity(allocator, 2);
         self.states.appendAssumeCapacity(.{ .id = RegexState.ErrorState });
-        self.states.appendAssumeCapacity(.{ .id = 1, .accept = true }); //Empty NFA used to concatenate the first expression.
-        try self.substate_machines.append(allocator, .{ .init = 1, .accept = .{ .NFA = 1 } });
         return self;
+    }
+    pub fn empty(self: *RegexFSM) !void {
+        const last_id: u32 = @intCast(self.states.items.len);
+        try self.states.append(self.allocator, .{ .id = last_id, .accept = true }); //Empty NFA used to concatenate an "empty" expression.
+        try self.substate_machines.append(self.allocator, .{ .init = last_id, .accept = .{ .NFA = last_id } });
     }
     pub fn add_datatype(self: *RegexFSM, dt: DataType) !void {
         std.debug.assert(dt != .none);
@@ -1364,6 +1367,7 @@ test "RegexState" {
     defer rfsm.deinit();
     try rfsm.add_datatype(.{ .range = .{ .min = 'A', .max = 'B' } });
     try rfsm.kleene_star();
+    try rfsm.empty();
     try rfsm.concatenation();
     std.debug.print(ESC("Sub state machines: {any}\n", .{1}), .{rfsm.substate_machines.items});
     for (rfsm.states.items) |state| std.debug.print("{}\n", .{state});

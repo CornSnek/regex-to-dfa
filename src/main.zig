@@ -1,6 +1,6 @@
 const std = @import("std");
 const regex_fsm = @import("regex_fsm.zig");
-const RegexState = regex_fsm.RegexState;
+const RegexFSM = regex_fsm.RegexFSM;
 test {
     _ = regex_fsm;
     _ = @import("sorted_list.zig");
@@ -20,6 +20,9 @@ const Token = union(enum) {
     @"set^": void,
     @"-": void,
     @"]": void,
+    @"?": void,
+    @"*": void,
+    @"+": void,
     eof: void,
     fn eq_tag(self: Token, num: GetMinTagType(Token)) bool {
         return @intFromEnum(self) == num;
@@ -45,7 +48,8 @@ const ParseState = union(enum) {
     escaped: void,
     set: u32,
     quant_lhs: []const u8, //Number range.
-    quant_rhs: []const u8, //Number range.
+    quant_rhs_with_left: []const u8,
+    quant_rhs_no_left: []const u8,
 };
 pub const RegexLexer = struct {
     pub const LexerError = error{
@@ -56,6 +60,7 @@ pub const RegexLexer = struct {
         MissingSquareBracketEnd,
         StatePopToNull,
         LHSQuantifierNumberRequired,
+        RHSQuantifierNumberRequired,
         MissingEndQuantifier,
         MissingEndCurlyBracketQuantifier,
         NotANumberQuantifier,
@@ -77,9 +82,9 @@ pub const RegexLexer = struct {
                         '(' => try token_array.append(.@"("),
                         ')' => try token_array.append(.@")"),
                         '|' => try token_array.append(.@"|"),
-                        '?' => try token_array.appendSlice(&[_]Token{ .{ .quant_gte = 0 }, .{ .quant_lte = 1 } }),
-                        '*' => try token_array.append(.{ .quant_gte = 0 }),
-                        '+' => try token_array.append(.{ .quant_gte = 1 }),
+                        '?' => try token_array.append(.@"?"),
+                        '*' => try token_array.append(.@"*"),
+                        '+' => try token_array.append(.@"+"),
                         '{' => parse_state = .{ .quant_lhs = regex_str[i + 1 .. i + 1] }, //Set as 0 length pointing to the next character.
                         '\\' => parse_state = .escaped,
                         '[' => {
@@ -135,22 +140,38 @@ pub const RegexLexer = struct {
                             parse_state = .begin;
                         },
                         ',' => {
-                            if (num_str.len == 0) return LexerError.LHSQuantifierNumberRequired;
-                            const num = try std.fmt.parseInt(u32, num_str.*, 10);
-                            try token_array.append(.{ .quant_gte = num });
-                            parse_state = .{ .quant_rhs = regex_str[i + 1 .. i + 1] };
+                            if (num_str.len != 0) {
+                                const num = try std.fmt.parseInt(u32, num_str.*, 10);
+                                try token_array.append(.{ .quant_gte = num });
+                                parse_state = .{ .quant_rhs_with_left = regex_str[i + 1 .. i + 1] };
+                            } else {
+                                parse_state = .{ .quant_rhs_no_left = regex_str[i + 1 .. i + 1] };
+                            }
                         },
                         else => return LexerError.NotANumberQuantifier,
                     }
                 },
-                .quant_rhs => |*num_str| {
+                .quant_rhs_with_left => |*num_str| {
                     switch (c) {
                         '0'...'9' => num_str.len += 1,
-                        '}' => {
+                        '}' => { //For {number1,number2} or {number1,}
                             if (num_str.len != 0) {
                                 const num = try std.fmt.parseInt(u32, num_str.*, 10);
                                 try token_array.append(.{ .quant_lte = num });
                             }
+                            parse_state = .begin;
+                        },
+                        else => return LexerError.NotANumberQuantifier,
+                    }
+                },
+                .quant_rhs_no_left => |*num_str| {
+                    switch (c) {
+                        '0'...'9' => num_str.len += 1,
+                        '}' => { //For {,number}
+                            if (num_str.len != 0) {
+                                const num = try std.fmt.parseInt(u32, num_str.*, 10);
+                                try token_array.append(.{ .quant_lte = num });
+                            } else return LexerError.RHSQuantifierNumberRequired;
                             parse_state = .begin;
                         },
                         else => return LexerError.NotANumberQuantifier,
@@ -163,7 +184,8 @@ pub const RegexLexer = struct {
             .escaped => return LexerError.EscapedAtEnd,
             .set => return LexerError.MissingSquareBracketEnd,
             .quant_lhs => return LexerError.MissingEndQuantifier,
-            .quant_rhs => return LexerError.MissingEndCurlyBracketQuantifier,
+            .quant_rhs_with_left => return LexerError.MissingEndCurlyBracketQuantifier,
+            .quant_rhs_no_left => return LexerError.MissingEndCurlyBracketQuantifier,
             else => return .{ .token_array = token_array },
         }
     }
@@ -409,23 +431,27 @@ fn BNFParser(comptime _TermT: type, comptime _NonTermT: type, comptime _Construc
     };
 }
 const RegexBNF = BNFParser(Token, NonTermEnum, RegexEngine, &.{
-    .{ .bnf = "Regex ::= '^' MExpr '$' 'eof'           ", .func = RegexEngine.nothing },
-    .{ .bnf = "        | '^' MExpr 'eof'               ", .func = RegexEngine.nothing },
-    .{ .bnf = "        | '^' '$' 'eof'                 ", .func = RegexEngine.nothing },
-    .{ .bnf = "        | '^' 'eof'                     ", .func = RegexEngine.nothing },
-    .{ .bnf = "        | MExpr '$' 'eof'               ", .func = RegexEngine.nothing },
-    .{ .bnf = "        | MExpr 'eof'                   ", .func = RegexEngine.nothing },
-    .{ .bnf = "        | '$' 'eof'                     ", .func = RegexEngine.nothing },
-    .{ .bnf = "        | 'eof'                         ", .func = RegexEngine.nothing },
-    .{ .bnf = "MExpr ::= Expr '|' MExpr                ", .func = RegexEngine.nothing },
-    .{ .bnf = "        | Expr MExpr                    ", .func = RegexEngine.nothing },
-    .{ .bnf = "        |                               ", .func = RegexEngine.nothing },
-    .{ .bnf = "Expr ::= SubExpr 'quant_gte' 'quant_lte'", .func = RegexEngine.nothing },
-    .{ .bnf = "       | SubExpr 'quant_gte'            ", .func = RegexEngine.nothing },
-    .{ .bnf = "       | SubExpr 'quant_exact'          ", .func = RegexEngine.nothing },
+    .{ .bnf = "Regex ::= '^' MExpr '$' 'eof'           ", .func = RegexEngine.finalize },
+    .{ .bnf = "        | '^' MExpr 'eof'               ", .func = RegexEngine.finalize },
+    .{ .bnf = "        | '^' '$' 'eof'                 ", .func = RegexEngine.finalize },
+    .{ .bnf = "        | '^' 'eof'                     ", .func = RegexEngine.finalize },
+    .{ .bnf = "        | MExpr '$' 'eof'               ", .func = RegexEngine.finalize },
+    .{ .bnf = "        | MExpr 'eof'                   ", .func = RegexEngine.finalize },
+    .{ .bnf = "        | '$' 'eof'                     ", .func = RegexEngine.finalize },
+    .{ .bnf = "        | 'eof'                         ", .func = RegexEngine.finalize },
+    .{ .bnf = "MExpr ::= Expr '|' MExpr                ", .func = RegexEngine.alternation }, //TODO Write "Alternation SubExpression" rule set in SubExpr instead
+    .{ .bnf = "        | Expr MExpr                    ", .func = RegexEngine.concatenation },
+    .{ .bnf = "        |                               ", .func = RegexEngine.empty_ssm },
+    .{ .bnf = "Expr ::= SubExpr 'quant_gte' 'quant_lte'", .func = RegexEngine.quant_between },
+    .{ .bnf = "       | SubExpr 'quant_gte'            ", .func = RegexEngine.quant_gte },
+    .{ .bnf = "       | SubExpr 'quant_lte'            ", .func = RegexEngine.quant_lte },
+    .{ .bnf = "       | SubExpr '?'                    ", .func = RegexEngine.optional },
+    .{ .bnf = "       | SubExpr '*'                    ", .func = RegexEngine.kleene },
+    .{ .bnf = "       | SubExpr '+'                    ", .func = RegexEngine.plus },
+    .{ .bnf = "       | SubExpr 'quant_exact'          ", .func = RegexEngine.quant_exact },
     .{ .bnf = "       | SubExpr                        ", .func = RegexEngine.nothing },
     .{ .bnf = "SubExpr ::= 'char'                      ", .func = RegexEngine.char },
-    .{ .bnf = "          | 'unicode'                   ", .func = RegexEngine.nothing },
+    .{ .bnf = "          | 'unicode'                   ", .func = RegexEngine.unicode },
     .{ .bnf = "          | Group                       ", .func = RegexEngine.nothing },
     .{ .bnf = "          | Set                         ", .func = RegexEngine.nothing },
     .{ .bnf = "Group ::= '(' GExpr ')'                 ", .func = RegexEngine.nothing },
@@ -446,11 +472,10 @@ const RegexBNF = BNFParser(Token, NonTermEnum, RegexEngine, &.{
 }, 10000);
 const RegexEngine = struct {
     allocator: std.mem.Allocator,
+    fsm: RegexFSM,
     token_stack: std.ArrayListUnmanaged(Token) = .{},
-    fsm: std.ArrayListUnmanaged(RegexState) = .{},
-    fn begin(self: *RegexEngine) !void {
-        _ = self; // autofix
-        return error.TODO;
+    fn init(allocator: std.mem.Allocator) !RegexEngine {
+        return .{ .allocator = allocator, .fsm = try RegexFSM.init(allocator) };
     }
     fn construct(self: *RegexEngine, node: RegexBNF.SymbolNode) !void {
         node.print(0);
@@ -462,15 +487,64 @@ const RegexEngine = struct {
         }
     }
     fn char(self: *RegexEngine, _: u32) !void {
-        std.debug.print("{c} was popped\n", .{self.token_stack.pop().char});
+        try self.fsm.add_datatype(.{ .char = self.token_stack.pop().char });
+    }
+    fn unicode(self: *RegexEngine, _: u32) !void {
+        try self.fsm.add_datatype(.{ .unicode = self.token_stack.pop().unicode });
+    }
+    fn optional(self: *RegexEngine, _: u32) !void {
+        std.debug.assert(self.token_stack.pop() == .@"?");
+        try self.fsm.optional();
+    }
+    fn kleene(self: *RegexEngine, _: u32) !void {
+        std.debug.assert(self.token_stack.pop() == .@"*");
+        try self.fsm.kleene_star();
+    }
+    fn plus(self: *RegexEngine, _: u32) !void {
+        std.debug.assert(self.token_stack.pop() == .@"+");
+        try self.fsm.plus();
+    }
+    fn quant_exact(self: *RegexEngine, _: u32) !void {
+        try self.fsm.repetition(self.token_stack.pop().quant_exact);
+    }
+    fn quant_between(self: *RegexEngine, _: u32) !void {
+        const lte = self.token_stack.pop().quant_lte;
+        try self.fsm.repetition_between(self.token_stack.pop().quant_gte, lte);
+    }
+    fn quant_lte(self: *RegexEngine, _: u32) !void {
+        try self.fsm.repetition_lte(self.token_stack.pop().quant_lte);
+    }
+    fn quant_gte(self: *RegexEngine, _: u32) !void {
+        try self.fsm.repetition_gte(self.token_stack.pop().quant_gte);
+    }
+    fn alternation(self: *RegexEngine, _: u32) !void {
+        std.debug.assert(self.token_stack.pop() == .@"|");
+        try self.fsm.alternation();
+    }
+    fn concatenation(self: *RegexEngine, _: u32) !void {
+        try self.fsm.concatenation();
+    }
+    fn empty_ssm(self: *RegexEngine, _: u32) !void {
+        try self.fsm.empty();
+    }
+    fn finalize(self: *RegexEngine, _: u32) !void {
+        std.debug.print(ESC("Regex converted to NFA\n", .{ 1, 32 }), .{});
+        std.debug.print(ESC("Sub state machines: {any}\n", .{1}), .{self.fsm.substate_machines.items});
+        for (self.fsm.states.items) |state| std.debug.print("{}\n", .{state});
+        try self.fsm.nfa_to_dfa();
+        std.debug.print(ESC("Sub state machines: {any}\n", .{1}), .{self.fsm.substate_machines.items});
+        for (self.fsm.states.items) |state| std.debug.print("{}\n", .{state});
+        try self.fsm.myhill_nerode();
+        std.debug.print(ESC("Sub state machines: {any}\n", .{1}), .{self.fsm.substate_machines.items});
+        for (self.fsm.states.items) |state| std.debug.print("{}\n", .{state});
     }
     fn nothing(self: *RegexEngine, s: u32) !void {
-        std.debug.print("{} args\n", .{s});
-        std.debug.print("{any}\n", .{self.token_stack.items});
+        _ = self; // autofix
+        _ = s; // autofix
     }
     fn deinit(self: *RegexEngine) void {
         self.token_stack.deinit(self.allocator);
-        self.fsm.deinit(self.allocator);
+        self.fsm.deinit();
     }
 };
 /// Returns root node of the syntax tree.
@@ -498,18 +572,18 @@ fn create_parse_tree(allocator: std.mem.Allocator, lexer: RegexLexer) !RegexBNF.
     cursors.appendAssumeCapacity(.{ .node = &root });
     var lexer_i: u32 = 0;
     new_cursor: while (lexer_i < lexer.token_array.items.len) {
-        std.debug.print("{any} ({})\n", .{ cursors.items, cursors.items.len });
+        //std.debug.print("{any} ({})\n", .{ cursors.items, cursors.items.len });
         var cursor_now: *RuleCursor = &cursors.items[cursors.items.len - 1];
         const rule_range = RegexBNF.RuleRanges[@intFromEnum(cursor_now.node.nt.nt)];
         new_rule: while (cursor_now.rule < rule_range.count) : (cursor_now.rule += 1) {
             const rule_now = RegexBNF.Rules[rule_range.start + cursor_now.rule];
-            std.debug.print(ESC("Reading rule[{}]: {}\n", .{1}), .{ cursor_now.rule, rule_now });
+            //std.debug.print(ESC("Reading rule[{}]: {}\n", .{1}), .{ cursor_now.rule, rule_now });
             while (cursor_now.offset < rule_now.sym.len) : (cursor_now.offset += 1) {
                 const symbol_now = rule_now.sym[cursor_now.offset];
                 const term_compare = lexer.token_array.items[lexer_i];
-                std.debug.print(ESC("{} =? {} [{}]? ", .{ 1, 35 }), .{ symbol_now, term_compare, lexer_i });
+                //std.debug.print(ESC("{} =? {} [{}]? ", .{ 1, 35 }), .{ symbol_now, term_compare, lexer_i });
                 if (symbol_now == .nt) { //Search through a sub nonterminal's rules recursively.
-                    std.debug.print(ESC("Adding nonterminal {} to stack\n", .{ 1, 33 }), .{symbol_now});
+                    //std.debug.print(ESC("Adding nonterminal {} to stack\n", .{ 1, 33 }), .{symbol_now});
                     const symbol_nt = try RegexBNF.SymbolNode.init_nonterm(allocator, symbol_now.nt, 0);
                     errdefer {
                         _ = symbol_nt.deinit(allocator);
@@ -520,11 +594,11 @@ fn create_parse_tree(allocator: std.mem.Allocator, lexer: RegexLexer) !RegexBNF.
                     continue :new_cursor;
                 } else { //Check if terminal symbol is equal and push it.
                     if (@intFromEnum(term_compare) == symbol_now.t) {
-                        std.debug.print(ESC("Equal\n", .{ 1, 32 }), .{});
+                        //std.debug.print(ESC("Equal\n", .{ 1, 32 }), .{});
                         cursor_now.node.nt.push(try RegexBNF.SymbolNode.init_term(allocator, term_compare));
                         lexer_i += 1;
                     } else {
-                        std.debug.print(ESC("Unequal\n", .{ 1, 31 }), .{});
+                        //std.debug.print(ESC("Unequal\n", .{ 1, 31 }), .{});
                         if (cursor_now.rule != rule_range.count - 1) {
                             const children = cursor_now.node.nt.extract();
                             errdefer {
@@ -553,10 +627,10 @@ fn create_parse_tree(allocator: std.mem.Allocator, lexer: RegexLexer) !RegexBNF.
                             cursor_now.offset = new_offset;
                             continue :new_rule;
                         }
-                        std.debug.print(ESC("All rules are unequal\n", .{ 1, 31 }), .{});
+                        //std.debug.print(ESC("All rules are unequal\n", .{ 1, 31 }), .{});
                         _ = cursors.pop();
                         cursor_now = if (cursors.items.len != 0) &cursors.items[cursors.items.len - 1] else {
-                            std.debug.print(ESC("This is not a Regex string\n", .{ 1, 31 }), .{});
+                            //std.debug.print(ESC("This is not a Regex string\n", .{ 1, 31 }), .{});
                             return error.ParsingFailed;
                         };
                         const last_rule_node = cursor_now.node.nt.pop(); //Revert tokenizer_i if all rules are unequal.
@@ -569,7 +643,7 @@ fn create_parse_tree(allocator: std.mem.Allocator, lexer: RegexLexer) !RegexBNF.
             }
             const expected_rule = RegexBNF.Rules[rule_range.start + cursor_now.node.nt.offset];
             if (!rule_now.eq(expected_rule)) { //Change rule if the while loop skipped checking the last rule.
-                std.debug.print(ESC("Rule {}\nmismatches symbol node\nRule {}\n", .{ 1, 31 }), .{ rule_now, expected_rule });
+                //std.debug.print(ESC("Rule {}\nmismatches symbol node\nRule {}\n", .{ 1, 31 }), .{ rule_now, expected_rule });
                 const children = cursor_now.node.nt.extract();
                 errdefer {
                     for (children) |child| {
@@ -596,19 +670,19 @@ fn create_parse_tree(allocator: std.mem.Allocator, lexer: RegexLexer) !RegexBNF.
                 }
                 cursor_now.offset = new_offset;
             } else { //A nonterminal rule is all equal.
-                std.debug.print(ESC("Approved rule {}\n", .{ 1, 32 }), .{rule_now});
+                //std.debug.print(ESC("Approved rule {}\n", .{ 1, 32 }), .{rule_now});
                 _ = cursors.pop();
                 if (cursors.items.len != 0) cursors.items[cursors.items.len - 1].offset += 1 else {
-                    std.debug.print(ESC("This is a Regex string\n", .{ 1, 32 }), .{});
+                    //std.debug.print(ESC("This is a Regex string\n", .{ 1, 32 }), .{});
                     return root;
                 }
             }
             continue :new_cursor;
         }
-        std.debug.print(ESC("All rules are unequal\n", .{ 1, 31 }), .{});
+        //std.debug.print(ESC("All rules are unequal\n", .{ 1, 31 }), .{});
         _ = cursors.pop();
         cursor_now = if (cursors.items.len != 0) &cursors.items[cursors.items.len - 1] else {
-            std.debug.print(ESC("This is not a Regex string\n", .{ 1, 31 }), .{});
+            //std.debug.print(ESC("This is not a Regex string\n", .{ 1, 31 }), .{});
             return error.ParsingFailed;
         };
         const last_rule_node = cursor_now.node.nt.pop(); //Revert tokenizer_i if all rules are unequal.
@@ -622,7 +696,7 @@ pub fn main() !void {
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .{};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-    var lexer = try RegexLexer.init(allocator, "^a|bc|d?(yz|a[^c])*[Ha-rd]{123,456}");
+    var lexer = try RegexLexer.init(allocator, "^");
     defer lexer.deinit();
     const parse_tree = try create_parse_tree(allocator, lexer);
     defer _ = parse_tree.deinit(allocator);
@@ -630,8 +704,7 @@ pub fn main() !void {
     std.debug.print("\n", .{});
     parse_tree.print_tree(.post, 0);
     std.debug.print("\n", .{});
-    var rc: RegexEngine = .{ .allocator = allocator };
-    try rc.begin();
+    var rc: RegexEngine = try RegexEngine.init(allocator);
     defer rc.deinit();
     try parse_tree.construct(&rc, RegexEngine.construct);
 }
