@@ -207,7 +207,7 @@ const NonTermEnum = enum {
     Set2,
     SetExpr,
 };
-fn BNFParser(comptime _TermT: type, comptime _NonTermT: type, comptime _ConstructorT: type, comptime rules: []const struct { bnf: []const u8, func: fn (*_ConstructorT, u32) anyerror!void }, comptime quota: u32) type {
+fn BNFParser(comptime _TermT: type, comptime _NonTermT: type, comptime _ConstructorT: type, comptime rules: []const struct { bnf: []const u8, func: fn (*_ConstructorT) anyerror!void }, comptime quota: u32) type {
     return struct {
         pub const TermT = _TermT;
         pub const NonTermT = _NonTermT;
@@ -374,9 +374,9 @@ fn BNFParser(comptime _TermT: type, comptime _NonTermT: type, comptime _Construc
             } else @compileError("Unrecognized " ++ @typeName(TermT) ++ " symbol name: '" ++ t_str ++ "'");
         }
         pub const ConstructFns = f: {
-            var _fns: []const *const fn (*_ConstructorT, u32) anyerror!void = &.{};
+            var _fns: []const *const fn (*_ConstructorT) anyerror!void = &.{};
             for (rules) |rule|
-                _fns = _fns ++ &[1]*const fn (*_ConstructorT, u32) anyerror!void{rule.func};
+                _fns = _fns ++ &[1]*const fn (*_ConstructorT) anyerror!void{rule.func};
             break :f _fns;
         };
         pub const Rules = r: {
@@ -483,75 +483,76 @@ const RegexEngine = struct {
         node.print(0);
         if (node == .nt) {
             const rule_range = RegexBNF.RuleRanges[@intFromEnum(node.nt.nt)];
-            try RegexBNF.ConstructFns[rule_range.start + node.nt.offset](self, node.nt.count);
+            try RegexBNF.ConstructFns[rule_range.start + node.nt.offset](self);
         } else {
             try self.token_stack.append(self.allocator, node.t);
         }
     }
-    fn char(self: *RegexEngine, _: u32) !void {
+    fn nothing(_: *RegexEngine) !void {}
+    fn char(self: *RegexEngine) !void {
         try self.fsm.add_datatype(.{ .char = self.token_stack.pop().char });
     }
-    fn unicode(self: *RegexEngine, _: u32) !void {
+    fn unicode(self: *RegexEngine) !void {
         try self.fsm.add_datatype(.{ .unicode = self.token_stack.pop().unicode });
     }
-    fn set_char(self: *RegexEngine, _: u32) !void {
+    fn set_char(self: *RegexEngine) !void {
         try self.fsm.add_set_datatype(.{ .char = self.token_stack.pop().char });
     }
-    fn set_unicode(self: *RegexEngine, _: u32) !void {
+    fn set_unicode(self: *RegexEngine) !void {
         try self.fsm.add_set_datatype(.{ .unicode = self.token_stack.pop().unicode });
     }
-    fn set_range_char(self: *RegexEngine, _: u32) !void {
+    fn set_range_char(self: *RegexEngine) !void {
         const ch_max = self.token_stack.pop().char;
         std.debug.assert(self.token_stack.pop() == .@"-");
         try self.fsm.add_set_datatype(.{ .range = .{ .min = self.token_stack.pop().char, .max = ch_max } });
     }
-    fn set_range_unicode(self: *RegexEngine, _: u32) !void {
+    fn set_range_unicode(self: *RegexEngine) !void {
         const un_max = self.token_stack.pop().unicode;
         std.debug.assert(self.token_stack.pop() == .@"-");
         try self.fsm.add_set_datatype(.{ .range = .{ .min = self.token_stack.pop().unicode, .max = un_max } });
     }
-    fn set(self: *RegexEngine, _: u32) !void {
+    fn set(self: *RegexEngine) !void {
         try self.fsm.add_set();
     }
-    fn set_complement(self: *RegexEngine, _: u32) !void {
+    fn set_complement(self: *RegexEngine) !void {
         try self.fsm.add_set_complement();
     }
-    fn optional(self: *RegexEngine, _: u32) !void {
+    fn optional(self: *RegexEngine) !void {
         std.debug.assert(self.token_stack.pop() == .@"?");
         try self.fsm.optional();
     }
-    fn kleene(self: *RegexEngine, _: u32) !void {
+    fn kleene(self: *RegexEngine) !void {
         std.debug.assert(self.token_stack.pop() == .@"*");
         try self.fsm.kleene_star();
     }
-    fn plus(self: *RegexEngine, _: u32) !void {
+    fn plus(self: *RegexEngine) !void {
         std.debug.assert(self.token_stack.pop() == .@"+");
         try self.fsm.plus();
     }
-    fn quant_exact(self: *RegexEngine, _: u32) !void {
+    fn quant_exact(self: *RegexEngine) !void {
         try self.fsm.repetition(self.token_stack.pop().quant_exact);
     }
-    fn quant_between(self: *RegexEngine, _: u32) !void {
+    fn quant_between(self: *RegexEngine) !void {
         const lte = self.token_stack.pop().quant_lte;
         try self.fsm.repetition_between(self.token_stack.pop().quant_gte, lte);
     }
-    fn quant_lte(self: *RegexEngine, _: u32) !void {
+    fn quant_lte(self: *RegexEngine) !void {
         try self.fsm.repetition_lte(self.token_stack.pop().quant_lte);
     }
-    fn quant_gte(self: *RegexEngine, _: u32) !void {
+    fn quant_gte(self: *RegexEngine) !void {
         try self.fsm.repetition_gte(self.token_stack.pop().quant_gte);
     }
-    fn alternation(self: *RegexEngine, _: u32) !void {
+    fn alternation(self: *RegexEngine) !void {
         std.debug.assert(self.token_stack.pop() == .@"|");
         try self.fsm.alternation();
     }
-    fn concatenation(self: *RegexEngine, _: u32) !void {
+    fn concatenation(self: *RegexEngine) !void {
         try self.fsm.concatenation();
     }
-    fn empty_ssm(self: *RegexEngine, _: u32) !void {
+    fn empty_ssm(self: *RegexEngine) !void {
         try self.fsm.empty();
     }
-    fn finalize(self: *RegexEngine, _: u32) !void {
+    fn finalize(self: *RegexEngine) !void {
         std.debug.print(ESC("Regex converted to NFA\n", .{ 1, 32 }), .{});
         std.debug.print(ESC("Sub state machines: {any}\n", .{1}), .{self.fsm.substate_machines.items});
         for (self.fsm.states.items) |state| std.debug.print("{}\n", .{state});
@@ -561,10 +562,6 @@ const RegexEngine = struct {
         try self.fsm.myhill_nerode();
         std.debug.print(ESC("Sub state machines: {any}\n", .{1}), .{self.fsm.substate_machines.items});
         for (self.fsm.states.items) |state| std.debug.print("{}\n", .{state});
-    }
-    fn nothing(self: *RegexEngine, s: u32) !void {
-        _ = self; // autofix
-        _ = s; // autofix
     }
     fn deinit(self: *RegexEngine) void {
         self.token_stack.deinit(self.allocator);
