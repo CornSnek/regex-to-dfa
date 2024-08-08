@@ -566,6 +566,7 @@ pub const RegexFSM = struct {
     allocator: std.mem.Allocator,
     states: std.ArrayListUnmanaged(RegexState) = .{},
     substate_machines: std.ArrayListUnmanaged(SubStateMachine) = .{},
+    set_datatypes: std.ArrayListUnmanaged(DataType) = .{},
     pub fn init(allocator: std.mem.Allocator) !RegexFSM {
         var self: RegexFSM = .{ .allocator = allocator };
         try self.states.ensureUnusedCapacity(allocator, 2);
@@ -653,8 +654,8 @@ pub const RegexFSM = struct {
         self.states.items[ssm.init].transitions[1] = .{ .to = ssm.accept.NFA + 2, .dtype = .none };
         self.states.items[ssm.accept.NFA + 1].accept = false;
         self.states.items[ssm.accept.NFA + 1].transitions = try self.allocator.alloc(Transition, 2);
-        self.states.items[ssm.accept.NFA + 1].transitions[0] = .{ .to = ssm.accept.NFA + 2, .dtype = .none };
-        self.states.items[ssm.accept.NFA + 1].transitions[1] = .{ .to = ssm.init + 1, .dtype = .none };
+        self.states.items[ssm.accept.NFA + 1].transitions[0] = .{ .to = ssm.init + 1, .dtype = .none };
+        self.states.items[ssm.accept.NFA + 1].transitions[1] = .{ .to = ssm.accept.NFA + 2, .dtype = .none };
         try self.states.append(self.allocator, .{ .id = ssm.accept.NFA + 2, .accept = true });
         self.substate_machines.appendAssumeCapacity(.{ .init = ssm.init, .accept = .{ .NFA = ssm.accept.NFA + 2 } });
     }
@@ -746,6 +747,41 @@ pub const RegexFSM = struct {
         } else {
             try self.repetition(from);
         }
+    }
+    pub fn add_set_datatype(self: *RegexFSM, dt: DataType) !void {
+        try self.set_datatypes.append(self.allocator, dt);
+    }
+    pub fn add_set(self: *RegexFSM) !void {
+        var dtpl: DataTypePartitionList = .{};
+        defer dtpl.deinit(self.allocator);
+        for (self.set_datatypes.items) |dt| try dtpl.add(self.allocator, dt);
+        const init_state_i: u32 = @intCast(self.states.items.len);
+        try self.states.ensureUnusedCapacity(self.allocator, 2);
+        self.states.appendSliceAssumeCapacity(&.{
+            .{ .id = init_state_i },
+            .{ .id = init_state_i + 1, .accept = true },
+        });
+        self.states.items[init_state_i].transitions = try self.allocator.alloc(Transition, dtpl.list.items.len);
+        for (dtpl.list.items, 0..) |dt, i| self.states.items[init_state_i].transitions[i] = .{ .to = init_state_i + 1, .dtype = dt };
+        try Transition.merge(&self.states.items[init_state_i].transitions, self.allocator);
+        self.set_datatypes.clearRetainingCapacity();
+        try self.substate_machines.append(self.allocator, .{ .init = init_state_i, .accept = .{ .NFA = init_state_i + 1 } });
+    }
+    pub fn add_set_complement(self: *RegexFSM) !void {
+        var dtpl: DataTypePartitionList = .{};
+        defer dtpl.deinit(self.allocator);
+        try dtpl.add(self.allocator, .{ .range = .{ .min = 0, .max = 0xffff } });
+        for (self.set_datatypes.items) |dt| try dtpl.delete(self.allocator, dt);
+        const init_state_i: u32 = @intCast(self.states.items.len);
+        try self.states.ensureUnusedCapacity(self.allocator, 2);
+        self.states.appendSliceAssumeCapacity(&.{
+            .{ .id = init_state_i },
+            .{ .id = init_state_i + 1, .accept = true },
+        });
+        self.states.items[init_state_i].transitions = try self.allocator.alloc(Transition, dtpl.list.items.len);
+        for (dtpl.list.items, 0..) |dt, i| self.states.items[init_state_i].transitions[i] = .{ .to = init_state_i + 1, .dtype = dt };
+        self.set_datatypes.clearRetainingCapacity();
+        try self.substate_machines.append(self.allocator, .{ .init = init_state_i, .accept = .{ .NFA = init_state_i + 1 } });
     }
     pub fn nfa_to_dfa(self: *RegexFSM) !void {
         var ssm = self.substate_machines.pop();
@@ -1030,6 +1066,7 @@ pub const RegexFSM = struct {
         for (self.substate_machines.items) |ssm|
             ssm.deinit(self.allocator);
         self.substate_machines.deinit(self.allocator);
+        self.set_datatypes.deinit(self.allocator);
     }
 };
 const PowerSetHashMap = struct {
@@ -1631,20 +1668,27 @@ pub fn input_string(init: u32, ctx: *RegexStateContext, str: []const u8) *const 
     return state;
 }
 test "RegexState" {
-    //var rfsm: RegexFSM = try RegexFSM.init(std.testing.allocator);
-    //defer rfsm.deinit();
-    //try rfsm.add_datatype(.{ .range = .{ .min = 'A', .max = 'B' } });
-    //try rfsm.kleene_star();
-    //try rfsm.empty();
-    //try rfsm.concatenation();
-    //std.debug.print(ESC("Sub state machines: {any}\n", .{1}), .{rfsm.substate_machines.items});
-    //for (rfsm.states.items) |state| std.debug.print("{}\n", .{state});
-    //try rfsm.nfa_to_dfa();
-    //std.debug.print(ESC("Sub state machines: {any}\n", .{1}), .{rfsm.substate_machines.items});
-    //for (rfsm.states.items) |state| std.debug.print("{}\n", .{state});
-    //try rfsm.myhill_nerode();
-    //std.debug.print(ESC("Sub state machines: {any}\n", .{1}), .{rfsm.substate_machines.items});
-    //for (rfsm.states.items) |state| std.debug.print("{}\n", .{state});
+    var rfsm: RegexFSM = try RegexFSM.init(std.testing.allocator);
+    defer rfsm.deinit();
+    try rfsm.add_set_datatype(.{ .range = .{ .min = 'A', .max = 'Z' } });
+    try rfsm.add_set_datatype(.{ .range = .{ .min = 'a', .max = 'z' } });
+    try rfsm.add_set_datatype(.{ .range = .{ .min = '0', .max = '9' } });
+    try rfsm.add_set_datatype(.{ .char = '_' });
+    try rfsm.add_set();
+    try rfsm.add_set_datatype(.{ .range = .{ .min = 'A', .max = 'Z' } });
+    try rfsm.add_set_datatype(.{ .range = .{ .min = 'a', .max = 'z' } });
+    try rfsm.add_set_datatype(.{ .range = .{ .min = '0', .max = '9' } });
+    try rfsm.add_set_datatype(.{ .char = '_' });
+    try rfsm.add_set_complement();
+    try rfsm.concatenation();
+    std.debug.print(ESC("Sub state machines: {any}\n", .{1}), .{rfsm.substate_machines.items});
+    for (rfsm.states.items) |state| std.debug.print("{}\n", .{state});
+    try rfsm.nfa_to_dfa();
+    std.debug.print(ESC("Sub state machines: {any}\n", .{1}), .{rfsm.substate_machines.items});
+    for (rfsm.states.items) |state| std.debug.print("{}\n", .{state});
+    try rfsm.myhill_nerode();
+    std.debug.print(ESC("Sub state machines: {any}\n", .{1}), .{rfsm.substate_machines.items});
+    for (rfsm.states.items) |state| std.debug.print("{}\n", .{state});
     //var rsctx: RegexStateContext = .{ .array = rfsm.states.items };
     //std.debug.print("States: {any}\nState now: {any}\n", .{
     //    rfsm.states.items,

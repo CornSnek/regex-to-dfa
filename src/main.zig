@@ -463,14 +463,14 @@ const RegexBNF = BNFParser(Token, NonTermEnum, RegexEngine, &.{
     .{ .bnf = "         |                              ", .func = RegexEngine.nothing },
     .{ .bnf = "GAMExpr ::= '|' GMExpr GAMExpr          ", .func = RegexEngine.nothing },
     .{ .bnf = "          |                             ", .func = RegexEngine.nothing },
-    .{ .bnf = "Set ::= '[' 'set^' Set2                 ", .func = RegexEngine.nothing },
-    .{ .bnf = "      | '[' Set2                        ", .func = RegexEngine.nothing },
+    .{ .bnf = "Set ::= '[' 'set^' Set2                 ", .func = RegexEngine.set_complement },
+    .{ .bnf = "      | '[' Set2                        ", .func = RegexEngine.set },
     .{ .bnf = "Set2 ::= SetExpr Set2                   ", .func = RegexEngine.nothing },
     .{ .bnf = "       | ']'                            ", .func = RegexEngine.nothing },
-    .{ .bnf = "SetExpr ::= 'char' '-' 'char'           ", .func = RegexEngine.range_char },
-    .{ .bnf = "          | 'char'                      ", .func = RegexEngine.char },
-    .{ .bnf = "          | 'unicode' '-' 'unicode'     ", .func = RegexEngine.range_unicode },
-    .{ .bnf = "          | 'unicode'                   ", .func = RegexEngine.unicode },
+    .{ .bnf = "SetExpr ::= 'char' '-' 'char'           ", .func = RegexEngine.set_range_char },
+    .{ .bnf = "          | 'char'                      ", .func = RegexEngine.set_char },
+    .{ .bnf = "          | 'unicode' '-' 'unicode'     ", .func = RegexEngine.set_range_unicode },
+    .{ .bnf = "          | 'unicode'                   ", .func = RegexEngine.set_unicode },
 }, 10000);
 const RegexEngine = struct {
     allocator: std.mem.Allocator,
@@ -494,15 +494,27 @@ const RegexEngine = struct {
     fn unicode(self: *RegexEngine, _: u32) !void {
         try self.fsm.add_datatype(.{ .unicode = self.token_stack.pop().unicode });
     }
-    fn range_char(self: *RegexEngine, _: u32) !void {
+    fn set_char(self: *RegexEngine, _: u32) !void {
+        try self.fsm.add_set_datatype(.{ .char = self.token_stack.pop().char });
+    }
+    fn set_unicode(self: *RegexEngine, _: u32) !void {
+        try self.fsm.add_set_datatype(.{ .unicode = self.token_stack.pop().unicode });
+    }
+    fn set_range_char(self: *RegexEngine, _: u32) !void {
         const ch_max = self.token_stack.pop().char;
         std.debug.assert(self.token_stack.pop() == .@"-");
-        try self.fsm.add_datatype(.{ .range = .{ .min = self.token_stack.pop().char, .max = ch_max } });
+        try self.fsm.add_set_datatype(.{ .range = .{ .min = self.token_stack.pop().char, .max = ch_max } });
     }
-    fn range_unicode(self: *RegexEngine, _: u32) !void {
+    fn set_range_unicode(self: *RegexEngine, _: u32) !void {
         const un_max = self.token_stack.pop().unicode;
         std.debug.assert(self.token_stack.pop() == .@"-");
-        try self.fsm.add_datatype(.{ .range = .{ .min = self.token_stack.pop().unicode, .max = un_max } });
+        try self.fsm.add_set_datatype(.{ .range = .{ .min = self.token_stack.pop().unicode, .max = un_max } });
+    }
+    fn set(self: *RegexEngine, _: u32) !void {
+        try self.fsm.add_set();
+    }
+    fn set_complement(self: *RegexEngine, _: u32) !void {
+        try self.fsm.add_set_complement();
     }
     fn optional(self: *RegexEngine, _: u32) !void {
         std.debug.assert(self.token_stack.pop() == .@"?");
