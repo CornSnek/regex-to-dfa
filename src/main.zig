@@ -197,6 +197,7 @@ const NonTermEnum = enum {
     Regex, //start symbol
     MExpr,
     Expr,
+    Quantifier,
     SubExpr,
     Group,
     GExpr,
@@ -442,14 +443,15 @@ const RegexBNF = BNFParser(Token, NonTermEnum, RegexEngine, &.{
     .{ .bnf = "MExpr ::= Expr '|' MExpr                ", .func = RegexEngine.alternation }, //TODO Write "Alternation SubExpression" rule set in SubExpr instead
     .{ .bnf = "        | Expr MExpr                    ", .func = RegexEngine.concatenation },
     .{ .bnf = "        |                               ", .func = RegexEngine.empty_ssm },
-    .{ .bnf = "Expr ::= SubExpr 'quant_gte' 'quant_lte'", .func = RegexEngine.quant_between },
-    .{ .bnf = "       | SubExpr 'quant_gte'            ", .func = RegexEngine.quant_gte },
-    .{ .bnf = "       | SubExpr 'quant_lte'            ", .func = RegexEngine.quant_lte },
-    .{ .bnf = "       | SubExpr '?'                    ", .func = RegexEngine.optional },
-    .{ .bnf = "       | SubExpr '*'                    ", .func = RegexEngine.kleene },
-    .{ .bnf = "       | SubExpr '+'                    ", .func = RegexEngine.plus },
-    .{ .bnf = "       | SubExpr 'quant_exact'          ", .func = RegexEngine.quant_exact },
-    .{ .bnf = "       | SubExpr                        ", .func = RegexEngine.nothing },
+    .{ .bnf = "Expr ::= SubExpr Quantifier             ", .func = RegexEngine.nothing },
+    .{ .bnf = "Quantifier ::= 'quant_gte' 'quant_lte'  ", .func = RegexEngine.quant_between },
+    .{ .bnf = "             | 'quant_gte'              ", .func = RegexEngine.quant_gte },
+    .{ .bnf = "             | 'quant_lte'              ", .func = RegexEngine.quant_lte },
+    .{ .bnf = "             | '?'                      ", .func = RegexEngine.optional },
+    .{ .bnf = "             | '*'                      ", .func = RegexEngine.kleene },
+    .{ .bnf = "             | '+'                      ", .func = RegexEngine.plus },
+    .{ .bnf = "             | 'quant_exact'            ", .func = RegexEngine.quant_exact },
+    .{ .bnf = "             |                          ", .func = RegexEngine.nothing },
     .{ .bnf = "SubExpr ::= 'char'                      ", .func = RegexEngine.char },
     .{ .bnf = "          | 'unicode'                   ", .func = RegexEngine.unicode },
     .{ .bnf = "          | Group                       ", .func = RegexEngine.nothing },
@@ -465,10 +467,10 @@ const RegexBNF = BNFParser(Token, NonTermEnum, RegexEngine, &.{
     .{ .bnf = "      | '[' Set2                        ", .func = RegexEngine.nothing },
     .{ .bnf = "Set2 ::= SetExpr Set2                   ", .func = RegexEngine.nothing },
     .{ .bnf = "       | ']'                            ", .func = RegexEngine.nothing },
-    .{ .bnf = "SetExpr ::= 'char' '-' 'char'           ", .func = RegexEngine.nothing },
-    .{ .bnf = "          | 'char'                      ", .func = RegexEngine.nothing },
-    .{ .bnf = "          | 'unicode' '-' 'unicode'     ", .func = RegexEngine.nothing },
-    .{ .bnf = "          | 'unicode'                   ", .func = RegexEngine.nothing },
+    .{ .bnf = "SetExpr ::= 'char' '-' 'char'           ", .func = RegexEngine.range_char },
+    .{ .bnf = "          | 'char'                      ", .func = RegexEngine.char },
+    .{ .bnf = "          | 'unicode' '-' 'unicode'     ", .func = RegexEngine.range_unicode },
+    .{ .bnf = "          | 'unicode'                   ", .func = RegexEngine.unicode },
 }, 10000);
 const RegexEngine = struct {
     allocator: std.mem.Allocator,
@@ -491,6 +493,16 @@ const RegexEngine = struct {
     }
     fn unicode(self: *RegexEngine, _: u32) !void {
         try self.fsm.add_datatype(.{ .unicode = self.token_stack.pop().unicode });
+    }
+    fn range_char(self: *RegexEngine, _: u32) !void {
+        const ch_max = self.token_stack.pop().char;
+        std.debug.assert(self.token_stack.pop() == .@"-");
+        try self.fsm.add_datatype(.{ .range = .{ .min = self.token_stack.pop().char, .max = ch_max } });
+    }
+    fn range_unicode(self: *RegexEngine, _: u32) !void {
+        const un_max = self.token_stack.pop().unicode;
+        std.debug.assert(self.token_stack.pop() == .@"-");
+        try self.fsm.add_datatype(.{ .range = .{ .min = self.token_stack.pop().unicode, .max = un_max } });
     }
     fn optional(self: *RegexEngine, _: u32) !void {
         std.debug.assert(self.token_stack.pop() == .@"?");
@@ -696,7 +708,7 @@ pub fn main() !void {
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .{};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-    var lexer = try RegexLexer.init(allocator, "^");
+    var lexer = try RegexLexer.init(allocator, "^[^A-Za-z]");
     defer lexer.deinit();
     const parse_tree = try create_parse_tree(allocator, lexer);
     defer _ = parse_tree.deinit(allocator);
