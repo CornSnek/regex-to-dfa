@@ -45,7 +45,7 @@ fn GetMinTagType(comptime TokenT: anytype) type {
 }
 const ReadState = union(enum) {
     begin: void,
-    escaped: void,
+    escaped: bool, //If '-' can be escaped.
     set: u32,
     quant_lhs: []const u8, //Number range.
     quant_rhs_with_left: []const u8,
@@ -68,13 +68,14 @@ pub const RegexLexer = struct {
     pub const RegexTokenArray = std.ArrayList(Token);
     token_array: RegexTokenArray,
     pub fn init(allocator: std.mem.Allocator, regex_str: []const u8) !RegexLexer {
-        var parse_state: ReadState = .begin;
+        var read_state: ReadState = .begin;
         var token_array: RegexTokenArray = RegexTokenArray.init(allocator);
         errdefer token_array.deinit();
         var i: u32 = 0;
+        var esc_last_read_state: ReadState = undefined; //.escaped has two states to go into.
         while (i < regex_str.len) : (i += 1) {
             const c = regex_str[i];
-            switch (parse_state) {
+            switch (read_state) {
                 .begin => {
                     switch (c) {
                         '^' => if (i != 0) try token_array.append(.{ .char = c }) else try token_array.append(.@"^"),
@@ -85,27 +86,34 @@ pub const RegexLexer = struct {
                         '?' => try token_array.append(.@"?"),
                         '*' => try token_array.append(.@"*"),
                         '+' => try token_array.append(.@"+"),
-                        '{' => parse_state = .{ .quant_lhs = regex_str[i + 1 .. i + 1] }, //Set as 0 length pointing to the next character.
-                        '\\' => parse_state = .escaped,
+                        '{' => read_state = .{ .quant_lhs = regex_str[i + 1 .. i + 1] }, //Set as 0 length pointing to the next character.
+                        '\\' => {
+                            esc_last_read_state = read_state;
+                            read_state = .{ .escaped = false };
+                        },
                         '[' => {
                             try token_array.append(.@"[");
-                            parse_state = .{ .set = @intCast(i + 1) };
+                            read_state = .{ .set = @intCast(i + 1) };
                         },
                         else => try token_array.append(.{ .char = c }),
                     }
                 },
                 .set => |set_begin_i| {
                     switch (c) {
+                        '\\' => {
+                            esc_last_read_state = read_state;
+                            read_state = .{ .escaped = true };
+                        },
                         '^' => if (set_begin_i != i) try token_array.append(.{ .char = '^' }) else try token_array.append(.@"set^"),
                         '-' => try token_array.append(.@"-"),
                         ']' => {
                             try token_array.append(.@"]");
-                            parse_state = .begin;
+                            read_state = .begin;
                         },
                         else => try token_array.append(.{ .char = c }),
                     }
                 },
-                .escaped => {
+                .escaped => |has_minus| {
                     switch (c) {
                         '0' => try token_array.append(.{ .char = 0 }),
                         'v' => try token_array.append(.{ .char = 11 }),
@@ -126,9 +134,12 @@ pub const RegexLexer = struct {
                             i += 4;
                         },
                         '+', '*', '?', '^', '$', '\\', '.', '[', ']', '{', '}', '(', ')', '|', '/' => |ch| try token_array.append(.{ .char = ch }),
+                        '-' => if (has_minus) {
+                            try token_array.append(.{ .char = '-' });
+                        } else return LexerError.InvalidCharacterToEscape,
                         else => return LexerError.InvalidCharacterToEscape,
                     }
-                    parse_state = .begin;
+                    read_state = esc_last_read_state;
                 },
                 .quant_lhs => |*num_str| {
                     switch (c) {
@@ -137,15 +148,15 @@ pub const RegexLexer = struct {
                             if (num_str.len == 0) return LexerError.LHSQuantifierNumberRequired;
                             const num = try std.fmt.parseInt(u32, num_str.*, 10);
                             try token_array.append(.{ .quant_exact = num });
-                            parse_state = .begin;
+                            read_state = .begin;
                         },
                         ',' => {
                             if (num_str.len != 0) {
                                 const num = try std.fmt.parseInt(u32, num_str.*, 10);
                                 try token_array.append(.{ .quant_gte = num });
-                                parse_state = .{ .quant_rhs_with_left = regex_str[i + 1 .. i + 1] };
+                                read_state = .{ .quant_rhs_with_left = regex_str[i + 1 .. i + 1] };
                             } else {
-                                parse_state = .{ .quant_rhs_no_left = regex_str[i + 1 .. i + 1] };
+                                read_state = .{ .quant_rhs_no_left = regex_str[i + 1 .. i + 1] };
                             }
                         },
                         else => return LexerError.NotANumberQuantifier,
@@ -159,7 +170,7 @@ pub const RegexLexer = struct {
                                 const num = try std.fmt.parseInt(u32, num_str.*, 10);
                                 try token_array.append(.{ .quant_lte = num });
                             }
-                            parse_state = .begin;
+                            read_state = .begin;
                         },
                         else => return LexerError.NotANumberQuantifier,
                     }
@@ -172,7 +183,7 @@ pub const RegexLexer = struct {
                                 const num = try std.fmt.parseInt(u32, num_str.*, 10);
                                 try token_array.append(.{ .quant_lte = num });
                             } else return LexerError.RHSQuantifierNumberRequired;
-                            parse_state = .begin;
+                            read_state = .begin;
                         },
                         else => return LexerError.NotANumberQuantifier,
                     }
@@ -180,7 +191,7 @@ pub const RegexLexer = struct {
             }
         }
         try token_array.append(.eof);
-        switch (parse_state) {
+        switch (read_state) {
             .escaped => return LexerError.EscapedAtEnd,
             .set => return LexerError.MissingSquareBracketEnd,
             .quant_lhs => return LexerError.MissingEndQuantifier,
@@ -743,7 +754,7 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
     //^(cat|dog|horse|snake|rabbit|cow)
-    var lexer = try RegexLexer.init(allocator, "^[a-zA-Z0-9.-]+$");
+    var lexer = try RegexLexer.init(allocator, "^[a-zA-Z0-9.\\-]+$");
     defer lexer.deinit();
     const parse_tree = try create_parse_tree(allocator, lexer);
     defer _ = parse_tree.deinit(allocator);
