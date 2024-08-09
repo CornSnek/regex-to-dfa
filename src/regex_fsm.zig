@@ -383,7 +383,7 @@ pub const Transition = struct {
             if (dtype_links == 0) {
                 copy_len += 1;
                 nonconnected += 1;
-                cmp_tr.dtype = cmp_next_tr.dtype;
+                cmp_tr = cmp_next_tr;
                 continue;
             }
             self.*[t_ptr].dtype = switch (cmp_tr.dtype) {
@@ -981,7 +981,6 @@ pub const RegexFSM = struct {
         ssm.accept = .{ .DFA = new_accept_str };
         self.substate_machines.appendAssumeCapacity(ssm);
         std.debug.print(ESC("DFA minimization complete\n", .{ 1, 32 }), .{});
-        //TODO: Merge close ranges and points as a bigger range.
     }
     /// State and transitions are merged into state1_1.
     fn merge_states(self: *RegexFSM, state1_i: u32, state2_i: u32, merged_states: []u32) !void {

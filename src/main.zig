@@ -723,7 +723,7 @@ pub fn main() !void {
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .{};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-    var lexer = try RegexLexer.init(allocator, "^ab|c|de|f[g-h]|[^i-j]");
+    var lexer = try RegexLexer.init(allocator, "^ab|c|de|f[g-h]*|[i-j]");
     defer lexer.deinit();
     const parse_tree = try create_parse_tree(allocator, lexer);
     defer _ = parse_tree.deinit(allocator);
