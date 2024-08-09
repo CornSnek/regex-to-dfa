@@ -466,7 +466,7 @@ const RegexBNF = BNFParser(Token, NonTermEnum, RegexEngine, &.{
     .{ .bnf = "Set ::= '[' 'set^' Set2                      ", .func = RegexEngine.set_complement },
     .{ .bnf = "      | '[' Set2                             ", .func = RegexEngine.set },
     .{ .bnf = "Set2 ::= SetExpr Set2                        ", .func = RegexEngine.nothing },
-    .{ .bnf = "       | ']'                                 ", .func = RegexEngine.nothing },
+    .{ .bnf = "       | ']'                                 ", .func = RegexEngine.set_end },
     .{ .bnf = "SetExpr ::= 'char' '-' 'char'                ", .func = RegexEngine.set_range_char },
     .{ .bnf = "          | 'char'                           ", .func = RegexEngine.set_char },
     .{ .bnf = "          | 'unicode' '-' 'unicode'          ", .func = RegexEngine.set_range_unicode },
@@ -481,6 +481,7 @@ const RegexEngine = struct {
     }
     fn construct(self: *RegexEngine, node: RegexBNF.SymbolNode) !void {
         node.print(0);
+        std.debug.print(ESC("Token stack: {any}\n", .{30}), .{self.token_stack.items});
         if (node == .nt) {
             const rule_range = RegexBNF.RuleRanges[@intFromEnum(node.nt.nt)];
             try RegexBNF.ConstructFns[rule_range.start + node.nt.offset](self);
@@ -512,10 +513,16 @@ const RegexEngine = struct {
         try self.fsm.add_set_datatype(.{ .range = .{ .min = self.token_stack.pop().unicode, .max = un_max } });
     }
     fn set(self: *RegexEngine) !void {
+        std.debug.assert(self.token_stack.pop() == .@"[");
         try self.fsm.add_set();
     }
     fn set_complement(self: *RegexEngine) !void {
+        std.debug.assert(self.token_stack.pop() == .@"set^");
+        std.debug.assert(self.token_stack.pop() == .@"[");
         try self.fsm.add_set_complement();
+    }
+    fn set_end(self: *RegexEngine) !void {
+        std.debug.assert(self.token_stack.pop() == .@"]");
     }
     fn optional(self: *RegexEngine) !void {
         std.debug.assert(self.token_stack.pop() == .@"?");
@@ -544,11 +551,7 @@ const RegexEngine = struct {
     }
     fn alternation(self: *RegexEngine) !void {
         std.debug.assert(self.token_stack.pop() == .@"|");
-        std.debug.print(ESC("\nSub state machines: {any}\n", .{1}), .{self.fsm.substate_machines.items});
-        for (self.fsm.states.items) |state| std.debug.print("{}\n", .{state});
         try self.fsm.alternation();
-        std.debug.print(ESC("Sub state machines: {any}\n", .{1}), .{self.fsm.substate_machines.items});
-        for (self.fsm.states.items) |state| std.debug.print("{}\n", .{state});
     }
     fn concatenation(self: *RegexEngine) !void {
         try self.fsm.concatenation();
@@ -720,7 +723,7 @@ pub fn main() !void {
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .{};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-    var lexer = try RegexLexer.init(allocator, "^ab|c|de|f");
+    var lexer = try RegexLexer.init(allocator, "^ab|c|de|f[g-h]|[i-j]");
     defer lexer.deinit();
     const parse_tree = try create_parse_tree(allocator, lexer);
     defer _ = parse_tree.deinit(allocator);
