@@ -200,8 +200,8 @@ const NonTermEnum = enum {
     Quantifier,
     SubExpr,
     Group,
-    GExpr,
     GMExpr,
+    GMExpr2,
     GAMExpr,
     Set,
     Set2,
@@ -456,12 +456,12 @@ const RegexBNF = BNFParser(Token, NonTermEnum, RegexEngine, &.{
     .{ .bnf = "          | 'unicode'                        ", .func = RegexEngine.unicode },
     .{ .bnf = "          | Group                            ", .func = RegexEngine.nothing },
     .{ .bnf = "          | Set                              ", .func = RegexEngine.nothing },
-    .{ .bnf = "Group ::= '(' GExpr ')'                      ", .func = RegexEngine.nothing },
-    .{ .bnf = "        | '(' ')'                            ", .func = RegexEngine.nothing },
-    .{ .bnf = "GExpr ::= GMExpr GAMExpr                     ", .func = RegexEngine.nothing },
-    .{ .bnf = "GMExpr ::= Expr GMExpr                       ", .func = RegexEngine.nothing },
-    .{ .bnf = "         |                                   ", .func = RegexEngine.nothing },
-    .{ .bnf = "GAMExpr ::= '|' GMExpr GAMExpr               ", .func = RegexEngine.nothing },
+    .{ .bnf = "Group ::= '(' GMExpr ')'                     ", .func = RegexEngine.clear_p },
+    .{ .bnf = "        | '(' ')'                            ", .func = RegexEngine.clear_p_empty_ssm },
+    .{ .bnf = "GMExpr ::= GMExpr2 GAMExpr                   ", .func = RegexEngine.nothing },
+    .{ .bnf = "GMExpr2 ::= SubExpr Quantifier GMExpr2       ", .func = RegexEngine.concatenation },
+    .{ .bnf = "         |                                   ", .func = RegexEngine.empty_ssm },
+    .{ .bnf = "GAMExpr ::= '|' GMExpr GAMExpr               ", .func = RegexEngine.alternation },
     .{ .bnf = "          |                                  ", .func = RegexEngine.nothing },
     .{ .bnf = "Set ::= '[' 'set^' Set2                      ", .func = RegexEngine.set_complement },
     .{ .bnf = "      | '[' Set2                             ", .func = RegexEngine.set },
@@ -558,6 +558,15 @@ const RegexEngine = struct {
     }
     fn empty_ssm(self: *RegexEngine) !void {
         try self.fsm.empty();
+    }
+    fn clear_p_empty_ssm(self: *RegexEngine) !void {
+        std.debug.assert(self.token_stack.pop() == .@")");
+        std.debug.assert(self.token_stack.pop() == .@"(");
+        try self.fsm.empty();
+    }
+    fn clear_p(self: *RegexEngine) !void {
+        std.debug.assert(self.token_stack.pop() == .@")");
+        std.debug.assert(self.token_stack.pop() == .@"(");
     }
     fn finalize(self: *RegexEngine) !void {
         std.debug.print(ESC("Sub state machines: {any}\n", .{1}), .{self.fsm.substate_machines.items});
@@ -723,7 +732,7 @@ pub fn main() !void {
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .{};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-    var lexer = try RegexLexer.init(allocator, "^ab|c|de|f[g-h]*|[i-j]");
+    var lexer = try RegexLexer.init(allocator, "^(cat|dog|horse|snake|rabbit|cow)");
     defer lexer.deinit();
     const parse_tree = try create_parse_tree(allocator, lexer);
     defer _ = parse_tree.deinit(allocator);
