@@ -43,7 +43,7 @@ fn GetMinTagType(comptime TokenT: anytype) type {
     const bits: comptime_int = @as(comptime_int, @intFromFloat(log_res)) + @as(comptime_int, @intFromBool(!evenly));
     return std.meta.Int(.unsigned, bits);
 }
-const ParseState = union(enum) {
+const ReadState = union(enum) {
     begin: void,
     escaped: void,
     set: u32,
@@ -68,7 +68,7 @@ pub const RegexLexer = struct {
     pub const RegexTokenArray = std.ArrayList(Token);
     token_array: RegexTokenArray,
     pub fn init(allocator: std.mem.Allocator, regex_str: []const u8) !RegexLexer {
-        var parse_state: ParseState = .begin;
+        var parse_state: ReadState = .begin;
         var token_array: RegexTokenArray = RegexTokenArray.init(allocator);
         errdefer token_array.deinit();
         var i: u32 = 0;
@@ -239,7 +239,7 @@ fn BNFParser(comptime _TermT: type, comptime _NonTermT: type, comptime _Construc
             count: u32 = 0,
             nt: NonTermT,
             pub fn push(self: *NonTermTNode, symbol: *SymbolNode) void {
-                std.debug.assert(self.count < @as(u8, @intCast(self.nodes.len)));
+                std.debug.assert(self.count < @as(u32, @intCast(self.nodes.len)));
                 self.nodes[self.count] = symbol;
                 self.count += 1;
             }
@@ -249,9 +249,9 @@ fn BNFParser(comptime _TermT: type, comptime _NonTermT: type, comptime _Construc
                 return self.nodes[self.count - 1];
             }
             /// If a rule is not correct. Salvage children nodes for the next rule.
-            pub fn extract(self: *NonTermTNode) []*SymbolNode {
+            pub fn extract(self: *NonTermTNode, allocator: std.mem.Allocator) ![]*SymbolNode {
                 defer self.count = 0;
-                return self.nodes[0..self.count];
+                return allocator.dupe(*SymbolNode, self.nodes[0..self.count]);
             }
             /// extract() children first before changing rule
             pub fn change(self: *NonTermTNode, allocator: std.mem.Allocator, offset: u32) !void {
@@ -480,8 +480,8 @@ const RegexEngine = struct {
         return .{ .allocator = allocator, .fsm = try RegexFSM.init(allocator) };
     }
     fn construct(self: *RegexEngine, node: RegexBNF.SymbolNode) !void {
-        node.print(0);
-        std.debug.print(ESC("Token stack: {any}\n", .{30}), .{self.token_stack.items});
+        //node.print(0);
+        //std.debug.print(ESC("Token stack: {any}\n", .{30}), .{self.token_stack.items});
         if (node == .nt) {
             const rule_range = RegexBNF.RuleRanges[@intFromEnum(node.nt.nt)];
             try RegexBNF.ConstructFns[rule_range.start + node.nt.offset](self);
@@ -608,18 +608,18 @@ fn create_parse_tree(allocator: std.mem.Allocator, lexer: RegexLexer) !RegexBNF.
     cursors.appendAssumeCapacity(.{ .node = &root });
     var lexer_i: u32 = 0;
     new_cursor: while (lexer_i < lexer.token_array.items.len) {
-        //std.debug.print("{any} ({})\n", .{ cursors.items, cursors.items.len });
+        std.debug.print("{any} ({})\n", .{ cursors.items, cursors.items.len });
         var cursor_now: *RuleCursor = &cursors.items[cursors.items.len - 1];
         const rule_range = RegexBNF.RuleRanges[@intFromEnum(cursor_now.node.nt.nt)];
         new_rule: while (cursor_now.rule < rule_range.count) : (cursor_now.rule += 1) {
             const rule_now = RegexBNF.Rules[rule_range.start + cursor_now.rule];
-            //std.debug.print(ESC("Reading rule[{}]: {}\n", .{1}), .{ cursor_now.rule, rule_now });
+            std.debug.print(ESC("Reading rule[{}]: {}\n", .{1}), .{ cursor_now.rule, rule_now });
             while (cursor_now.offset < rule_now.sym.len) : (cursor_now.offset += 1) {
                 const symbol_now = rule_now.sym[cursor_now.offset];
                 const term_compare = lexer.token_array.items[lexer_i];
-                //std.debug.print(ESC("{} =? {} [{}]? ", .{ 1, 35 }), .{ symbol_now, term_compare, lexer_i });
+                std.debug.print(ESC("{} =? {} [{}]? ", .{ 1, 35 }), .{ symbol_now, term_compare, lexer_i });
                 if (symbol_now == .nt) { //Search through a sub nonterminal's rules recursively.
-                    //std.debug.print(ESC("Adding nonterminal {} to stack\n", .{ 1, 33 }), .{symbol_now});
+                    std.debug.print(ESC("Adding nonterminal {} to stack\n", .{ 1, 33 }), .{symbol_now});
                     const symbol_nt = try RegexBNF.SymbolNode.init_nonterm(allocator, symbol_now.nt, 0);
                     errdefer {
                         _ = symbol_nt.deinit(allocator);
@@ -634,9 +634,10 @@ fn create_parse_tree(allocator: std.mem.Allocator, lexer: RegexLexer) !RegexBNF.
                         cursor_now.node.nt.push(try RegexBNF.SymbolNode.init_term(allocator, term_compare));
                         lexer_i += 1;
                     } else {
-                        //std.debug.print(ESC("Unequal\n", .{ 1, 31 }), .{});
+                        std.debug.print(ESC("Unequal\n", .{ 1, 31 }), .{});
                         if (cursor_now.rule != rule_range.count - 1) {
-                            const children = cursor_now.node.nt.extract();
+                            const children = try cursor_now.node.nt.extract(allocator);
+                            defer allocator.free(children);
                             errdefer {
                                 for (children) |child| {
                                     _ = child.deinit(allocator);
@@ -644,29 +645,33 @@ fn create_parse_tree(allocator: std.mem.Allocator, lexer: RegexLexer) !RegexBNF.
                                 }
                             }
                             try cursor_now.node.nt.change(allocator, cursor_now.rule + 1);
+                            const new_rule_len = cursor_now.node.nt.nodes.len;
                             var new_offset: u16 = 0;
                             while (new_offset < cursor_now.offset) : (new_offset += 1) { //Read the next rule if any children fit consecutively from left to right.
-                                const symbol_cmp = rule_now.sym[new_offset];
-                                const child = children[new_offset];
-                                if (children[new_offset].eq_sym(symbol_cmp)) {
-                                    cursor_now.node.nt.push(child);
-                                } else {
-                                    var delete_offset = new_offset;
-                                    while (delete_offset < cursor_now.offset) : (delete_offset += 1) {
-                                        const delete_child = children[delete_offset];
-                                        lexer_i -= delete_child.deinit(allocator); //Revert tokenizer_i due to deleted children.
-                                        allocator.destroy(delete_child);
+                                smaller_ruleset: {
+                                    if (new_offset == new_rule_len) break :smaller_ruleset;
+                                    const symbol_cmp = rule_now.sym[new_offset];
+                                    const child = children[new_offset];
+                                    if (child.eq_sym(symbol_cmp)) {
+                                        cursor_now.node.nt.push(child);
+                                        continue;
                                     }
-                                    break;
                                 }
+                                var delete_offset = new_offset;
+                                while (delete_offset < cursor_now.offset) : (delete_offset += 1) {
+                                    const delete_child = children[delete_offset];
+                                    lexer_i -= delete_child.deinit(allocator); //Revert tokenizer_i due to deleted children.
+                                    allocator.destroy(delete_child);
+                                }
+                                break;
                             }
                             cursor_now.offset = new_offset;
                             continue :new_rule;
                         }
-                        //std.debug.print(ESC("All rules are unequal\n", .{ 1, 31 }), .{});
+                        std.debug.print(ESC("All rules are unequal\n", .{ 1, 31 }), .{});
                         _ = cursors.pop();
                         cursor_now = if (cursors.items.len != 0) &cursors.items[cursors.items.len - 1] else {
-                            //std.debug.print(ESC("This is not a Regex string\n", .{ 1, 31 }), .{});
+                            std.debug.print(ESC("This is not a Regex string\n", .{ 1, 31 }), .{});
                             return error.ParsingFailed;
                         };
                         const last_rule_node = cursor_now.node.nt.pop(); //Revert tokenizer_i if all rules are unequal.
@@ -679,46 +684,51 @@ fn create_parse_tree(allocator: std.mem.Allocator, lexer: RegexLexer) !RegexBNF.
             }
             const expected_rule = RegexBNF.Rules[rule_range.start + cursor_now.node.nt.offset];
             if (!rule_now.eq(expected_rule)) { //Change rule if the while loop skipped checking the last rule.
-                //std.debug.print(ESC("Rule {}\nmismatches symbol node\nRule {}\n", .{ 1, 31 }), .{ rule_now, expected_rule });
-                const children = cursor_now.node.nt.extract();
+                std.debug.print(ESC("Rule {}\nmismatches symbol node\nRule {}\n", .{ 1, 31 }), .{ rule_now, expected_rule });
+                const children = try cursor_now.node.nt.extract(allocator);
+                defer allocator.free(children);
                 errdefer {
                     for (children) |child| {
                         _ = child.deinit(allocator);
                         allocator.destroy(child);
                     }
                 }
-                try cursor_now.node.nt.change(allocator, cursor_now.rule);
+                try cursor_now.node.nt.change(allocator, cursor_now.rule); //Copy and paste of "Unequal" symbol algorithm, but without +1
+                const new_rule_len = cursor_now.node.nt.nodes.len;
                 var new_offset: u16 = 0;
                 while (new_offset < cursor_now.offset) : (new_offset += 1) { //Read the next rule if any children fit consecutively from left to right.
-                    const symbol_cmp = rule_now.sym[new_offset];
-                    const child = children[new_offset];
-                    if (children[new_offset].eq_sym(symbol_cmp)) {
-                        cursor_now.node.nt.push(child);
-                    } else {
-                        var delete_offset = new_offset;
-                        while (delete_offset < cursor_now.offset) : (delete_offset += 1) {
-                            const delete_child = children[delete_offset];
-                            lexer_i -= delete_child.deinit(allocator); //Revert tokenizer_i due to deleted children.
-                            allocator.destroy(delete_child);
+                    smaller_ruleset: {
+                        if (new_offset == new_rule_len) break :smaller_ruleset;
+                        const symbol_cmp = rule_now.sym[new_offset];
+                        const child = children[new_offset];
+                        if (child.eq_sym(symbol_cmp)) {
+                            cursor_now.node.nt.push(child);
+                            continue;
                         }
-                        break;
                     }
+                    var delete_offset = new_offset;
+                    while (delete_offset < cursor_now.offset) : (delete_offset += 1) {
+                        const delete_child = children[delete_offset];
+                        lexer_i -= delete_child.deinit(allocator); //Revert tokenizer_i due to deleted children.
+                        allocator.destroy(delete_child);
+                    }
+                    break;
                 }
                 cursor_now.offset = new_offset;
             } else { //A nonterminal rule is all equal.
-                //std.debug.print(ESC("Approved rule {}\n", .{ 1, 32 }), .{rule_now});
+                std.debug.print(ESC("Approved rule {}\n", .{ 1, 32 }), .{rule_now});
                 _ = cursors.pop();
                 if (cursors.items.len != 0) cursors.items[cursors.items.len - 1].offset += 1 else {
-                    //std.debug.print(ESC("This is a Regex string\n", .{ 1, 32 }), .{});
+                    std.debug.print(ESC("This is a Regex string\n", .{ 1, 32 }), .{});
                     return root;
                 }
             }
             continue :new_cursor;
         }
-        //std.debug.print(ESC("All rules are unequal\n", .{ 1, 31 }), .{});
+        std.debug.print(ESC("All rules are unequal\n", .{ 1, 31 }), .{});
         _ = cursors.pop();
         cursor_now = if (cursors.items.len != 0) &cursors.items[cursors.items.len - 1] else {
-            //std.debug.print(ESC("This is not a Regex string\n", .{ 1, 31 }), .{});
+            std.debug.print(ESC("This is not a Regex string\n", .{ 1, 31 }), .{});
             return error.ParsingFailed;
         };
         const last_rule_node = cursor_now.node.nt.pop(); //Revert tokenizer_i if all rules are unequal.
@@ -732,7 +742,8 @@ pub fn main() !void {
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .{};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-    var lexer = try RegexLexer.init(allocator, "^(cat|dog|horse|snake|rabbit|cow)");
+    //^(cat|dog|horse|snake|rabbit|cow)
+    var lexer = try RegexLexer.init(allocator, "^[a-zA-Z0-9.-]+$");
     defer lexer.deinit();
     const parse_tree = try create_parse_tree(allocator, lexer);
     defer _ = parse_tree.deinit(allocator);
