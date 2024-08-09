@@ -7,11 +7,10 @@ pub fn Range(comptime IntT: type) type {
     return struct {
         min: IntT,
         max: IntT,
-        const This = @This();
-        pub const RangeSplit = struct { i: This, l: ?This, u: ?This };
+        pub const RangeSplit = struct { i: Range(IntT), l: ?Range(IntT), u: ?Range(IntT) };
         /// Splits range into any intersections and any leftover partitions of this_r.
-        pub fn intersect_split(this_r: @This(), other_r: @This()) ?RangeSplit {
-            const intersect: @This() = .{ .min = @max(other_r.min, this_r.min), .max = @min(other_r.max, this_r.max) };
+        pub fn intersect_split(this_r: Range(IntT), other_r: Range(IntT)) ?RangeSplit {
+            const intersect: Range(IntT) = .{ .min = @max(other_r.min, this_r.min), .max = @min(other_r.max, this_r.max) };
             return if (intersect.min <= intersect.max) .{
                 .i = intersect,
                 //std.math.minInt(IntT)/std.math.maxInt(IntT) checked because of underflow/overflow
@@ -20,18 +19,25 @@ pub fn Range(comptime IntT: type) type {
             } else null;
         }
         /// Same as `Range.intersect_split`, but .l and .u can be either partitions of this_r and/or other_r
-        pub fn union_split(this_r: @This(), other_r: @This()) ?RangeSplit {
-            const intersect: @This() = .{ .min = @max(other_r.min, this_r.min), .max = @min(other_r.max, this_r.max) };
+        pub fn union_split(this_r: Range(IntT), other_r: Range(IntT)) ?RangeSplit {
+            const intersect: Range(IntT) = .{ .min = @max(other_r.min, this_r.min), .max = @min(other_r.max, this_r.max) };
             return if (intersect.min <= intersect.max) .{
                 .i = intersect,
                 .l = if (intersect.min != std.math.minInt(IntT) and @min(this_r.min, other_r.min) <= intersect.min - 1) .{ .min = @min(this_r.min, other_r.min), .max = intersect.min - 1 } else null,
                 .u = if (intersect.max != std.math.maxInt(IntT) and @max(this_r.max, other_r.max) >= intersect.max + 1) .{ .min = intersect.max + 1, .max = @max(this_r.max, other_r.max) } else null,
             } else null;
         }
-        pub fn contains_range(this_r: @This(), other_r: @This()) bool {
+        pub fn union_merge(this_r: Range(IntT), other_r: Range(IntT)) ?Range(IntT) {
+            const intersect: Range(IntT) = .{ .min = @max(other_r.min, this_r.min), .max = @min(other_r.max, this_r.max) };
+            return if (intersect.min <= intersect.max + 1)
+                .{ .min = @min(other_r.min, this_r.min), .max = @max(other_r.max, this_r.max) }
+            else
+                null;
+        }
+        pub fn contains_range(this_r: Range(IntT), other_r: Range(IntT)) bool {
             return this_r.min <= other_r.min and other_r.max <= this_r.max;
         }
-        pub fn contains_point(self: @This(), point: IntT) bool {
+        pub fn contains_point(self: Range(IntT), point: IntT) bool {
             return self.min <= point and point <= self.max;
         }
     };
@@ -173,11 +179,35 @@ test "Range(u16) union_split at maximum" {
     ), r1.union_split(r2));
     try std.testing.expectEqual(r1.union_split(r2), r2.union_split(r1));
 }
+test "Range(u16) union_merge" {
+    const r1: Range(u16) = .{ .min = 1, .max = 2 };
+    const r2: Range(u16) = .{ .min = 3, .max = 4 };
+    const r3: Range(u16) = .{ .min = 2, .max = 3 };
+    const r4: Range(u16) = .{ .min = 4, .max = 5 };
+    try std.testing.expectEqual(@as(
+        ?Range(u16),
+        .{ .min = 1, .max = 4 },
+    ), r1.union_merge(r2));
+    try std.testing.expectEqual(r1.union_merge(r2), r2.union_merge(r1));
+    try std.testing.expectEqual(@as(
+        ?Range(u16),
+        .{ .min = 1, .max = 3 },
+    ), r1.union_merge(r3));
+    try std.testing.expectEqual(r1.union_merge(r3), r3.union_merge(r1));
+    try std.testing.expectEqual(@as(
+        ?Range(u16),
+        null,
+    ), r1.union_merge(r4));
+    try std.testing.expectEqual(r1.union_merge(r4), r4.union_merge(r1));
+}
 const DataType = union(enum) {
     none: void,
     char: u8,
     unicode: u16,
     range: Range(u16),
+    fn r_or_un(range: Range(u16)) DataType {
+        return if (range.min != range.max) .{ .range = range } else .{ .unicode = range.min };
+    }
     pub fn format(self: @This(), comptime _: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         try writer.writeAll("T[");
         switch (self) {
@@ -289,95 +319,69 @@ pub const Transition = struct {
         try std.fmt.formatInt(self.to, 10, .lower, options, writer);
     }
     pub fn lt(ctx: void, ltr: Transition, rtr: Transition) bool {
+        if (ltr.to < rtr.to) return true;
+        if (ltr.to > rtr.to) return false;
         return DataType.lt(ctx, ltr.dtype, rtr.dtype);
     }
     pub fn eq(self: Transition, other: Transition) bool {
         if (self.to != other.to) return false;
         return self.dtype.eq(other.dtype);
     }
-    pub fn merge(self: *[]Transition, allocator: std.mem.Allocator) !void {
+    /// Redundant or connected points/ranges are combined
+    pub fn union_merge(self: *[]Transition, allocator: std.mem.Allocator) !void {
         if (self.len == 0) return;
         std.sort.block(Transition, self.*, {}, Transition.lt);
-        var t_ptr: usize = 0;
+        var t_ptr: usize = self.len - 1;
         var new_self_len: usize = self.len;
-        t_ptr = self.len - 1;
-        while (t_ptr != 0) : (t_ptr -= 1) { //Merge duplicates backwards
-            const cmp_tr = self.*[t_ptr];
-            if (cmp_tr.eq(self.*[t_ptr - 1])) {
-                var t_ptr2 = @as(isize, @intCast(t_ptr)) - 2;
-                while (true) {
-                    if (t_ptr2 == -1) break;
-                    if (!cmp_tr.eq(self.*[@as(usize, @intCast(t_ptr2))])) break;
-                    t_ptr2 -= 1;
-                }
-                const rest_of = self.*[t_ptr + 1 .. new_self_len];
-                std.mem.copyForwards(Transition, self.*[@as(usize, @intCast(t_ptr2 + 2))..], rest_of);
-                new_self_len -= @intCast(@as(isize, @intCast(t_ptr)) - t_ptr2 - 1);
-                if (t_ptr2 == -1) break;
-                t_ptr = @intCast(t_ptr2 + 1);
-            }
-        }
-        t_ptr = new_self_len - 1;
-        var last_cmp_tr = self.*[t_ptr];
+        var cmp_tr = self.*[t_ptr];
         var copy_len: usize = 0;
         var nonconnected: usize = 0;
         var merged_ranges: usize = 0;
         var dtype_links: usize = 0;
         while (t_ptr != 0) : (t_ptr -= 1) { //Merge connected ranges and points backwards
-            const cmp_tr = self.*[t_ptr];
-            const cmp_tr2 = self.*[t_ptr - 1];
-            merge_ranges: {
-                if (cmp_tr.to != cmp_tr2.to) break :merge_ranges;
-                const cmp_tr_min: u16 = switch (cmp_tr.dtype) {
+            const cmp_next_tr = self.*[t_ptr - 1];
+            no_merged_range: {
+                if (cmp_tr.to != cmp_next_tr.to) break :no_merged_range;
+                const cmp_tr_r: Range(u16) = switch (cmp_tr.dtype) {
                     .none => unreachable,
-                    .unicode, .char => |wc| wc,
-                    .range => |r| r.min,
+                    .unicode, .char => |wc| .{ .min = wc, .max = wc },
+                    .range => |r| r,
                 };
-                const cmp_tr2_max: u16 = switch (cmp_tr2.dtype) {
+                const cmp_next_tr_r: Range(u16) = switch (cmp_next_tr.dtype) {
                     .none => unreachable,
-                    .unicode, .char => |wc| wc,
-                    .range => |r| r.max,
+                    .unicode, .char => |wc| .{ .min = wc, .max = wc },
+                    .range => |r| r,
                 };
-                if (cmp_tr_min != cmp_tr2_max + 1) break :merge_ranges;
-                dtype_links += 1;
-                continue;
+                if (cmp_tr_r.union_merge(cmp_next_tr_r)) |merged_range| {
+                    cmp_tr.dtype = .{ .range = merged_range };
+                    dtype_links += 1;
+                    continue;
+                }
             }
             if (dtype_links == 0) {
                 copy_len += 1;
                 nonconnected += 1;
-                last_cmp_tr = cmp_tr2;
+                cmp_tr.dtype = cmp_next_tr.dtype;
                 continue;
             }
-            const max_r: u16 = switch (last_cmp_tr.dtype) {
+            self.*[t_ptr].dtype = switch (cmp_tr.dtype) {
                 .none => unreachable,
-                .unicode, .char => |wc| wc,
-                .range => |r| r.max,
+                .char, .unicode => cmp_tr.dtype,
+                .range => |r| DataType.r_or_un(r),
             };
-            const min_r: u16 = switch (cmp_tr.dtype) {
-                .none => unreachable,
-                .unicode, .char => |wc| wc,
-                .range => |r| r.min,
-            };
-            self.*[t_ptr].dtype = .{ .range = .{ .min = min_r, .max = max_r } };
             std.mem.copyForwards(Transition, self.*[t_ptr + 1 ..], self.*[new_self_len - copy_len .. new_self_len]);
             merged_ranges += 1;
             copy_len = merged_ranges + nonconnected;
             new_self_len -= dtype_links;
             dtype_links = 0;
-            last_cmp_tr = cmp_tr2;
+            cmp_tr.dtype = cmp_next_tr.dtype;
         }
         if (dtype_links != 0) {
-            const max_r: u16 = switch (last_cmp_tr.dtype) {
+            self.*[0].dtype = switch (cmp_tr.dtype) {
                 .none => unreachable,
-                .unicode, .char => |wc| wc,
-                .range => |r| r.max,
+                .char, .unicode => cmp_tr.dtype,
+                .range => |r| DataType.r_or_un(r),
             };
-            const min_r: u16 = switch (self.*[0].dtype) {
-                .none => unreachable,
-                .unicode, .char => |wc| wc,
-                .range => |r| r.min,
-            };
-            self.*[0].dtype = .{ .range = .{ .min = min_r, .max = max_r } };
             std.mem.copyForwards(Transition, self.*[1..], self.*[new_self_len - copy_len .. new_self_len]);
             new_self_len -= dtype_links;
         }
@@ -404,7 +408,7 @@ test "Transition merge merge ranges together" {
         .{ .to = 0, .dtype = .{ .char = 25 } },
     });
     defer std.testing.allocator.free(transitions);
-    try Transition.merge(&transitions, std.testing.allocator);
+    try Transition.union_merge(&transitions, std.testing.allocator);
     try std.testing.expectEqualSlices(Transition, &.{
         .{ .to = 0, .dtype = .{ .range = .{ .min = 2, .max = 4 } } },
         .{ .to = 0, .dtype = .{ .char = 6 } },
@@ -431,7 +435,7 @@ test "Transition merge remove duplicates" {
         .{ .to = 0, .dtype = .{ .unicode = 'C' } },
     });
     defer std.testing.allocator.free(transitions);
-    try Transition.merge(&transitions, std.testing.allocator);
+    try Transition.union_merge(&transitions, std.testing.allocator);
     try std.testing.expectEqualSlices(Transition, &.{
         .{ .to = 0, .dtype = .{ .range = .{ .min = 'A', .max = 'D' } } },
         .{ .to = 0, .dtype = .{ .range = .{ .min = 'a', .max = 'e' } } },
@@ -682,7 +686,6 @@ pub const RegexFSM = struct {
                 for (e.transitions) |*tr|
                     tr.to += id_inc * @as(u32, @intCast(repeat_slice.len));
             }
-            std.debug.print("{}\n", .{id_inc});
             if (id_inc == by - 1) break;
             self.states.items[self.states.items.len - 1].accept = false;
             self.states.items[self.states.items.len - 1].transitions = try self.allocator.alloc(Transition, 1);
@@ -763,7 +766,7 @@ pub const RegexFSM = struct {
         });
         self.states.items[init_state_i].transitions = try self.allocator.alloc(Transition, dtpl.list.items.len);
         for (dtpl.list.items, 0..) |dt, i| self.states.items[init_state_i].transitions[i] = .{ .to = init_state_i + 1, .dtype = dt };
-        try Transition.merge(&self.states.items[init_state_i].transitions, self.allocator);
+        try Transition.union_merge(&self.states.items[init_state_i].transitions, self.allocator);
         self.set_datatypes.clearRetainingCapacity();
         try self.substate_machines.append(self.allocator, .{ .init = init_state_i, .accept = .{ .NFA = init_state_i + 1 } });
     }
@@ -947,8 +950,10 @@ pub const RegexFSM = struct {
         defer new_accept.deinit(self.allocator);
         const merged_states2 = try self.get_reachable_states(.DFA, &.{ssm.init});
         defer self.allocator.free(merged_states2);
-        for (merged_states2) |state_i|
+        for (merged_states2) |state_i| {
+            try Transition.union_merge(&self.states.items[state_i].transitions, self.allocator);
             if (self.states.items[state_i].accept) try new_accept.append(self.allocator, state_i);
+        }
         const new_accept_str = try new_accept.toOwnedSlice(self.allocator);
         ssm.deinit(self.allocator);
         ssm.accept = .{ .DFA = new_accept_str };
@@ -974,16 +979,18 @@ pub const RegexFSM = struct {
                     if (edited_transition.to == state2_i) edited_transition.to = state1_i;
                     state1.transitions[old_state1_tr_len + i] = edited_transition;
                 }
+                try Transition.union_merge(&state1.transitions, self.allocator);
                 for (state1.transitions) |*tr| {
                     if (tr.to == state2_i) tr.to = state1_i;
                     if (tr.to > state2_i) tr.to -= 1;
                 }
-                try Transition.merge(&state1.transitions, self.allocator);
             } else {
                 const state = self.states.items[state_i];
                 for (state.transitions) |*tr| {
                     if (tr.to == state2_i) tr.to = state1_i;
-                    if (tr.to > state2_i) tr.to -= 1;
+                    if (state_i < state2_i) { //shift_left already shifts the rightmost states by -1,
+                        if (tr.to > state2_i) tr.to -= 1;
+                    }
                 }
             }
         }
@@ -1126,9 +1133,6 @@ const PowerSetHashMap = struct {
 /// This sorts Datatypes (excluding .none) and partition ranges into smaller ranges.
 const DataTypePartitionList = struct {
     list: std.ArrayListUnmanaged(DataType) = .{},
-    fn r_or_un(range: Range(u16)) DataType {
-        return if (range.min != range.max) .{ .range = range } else .{ .unicode = range.min };
-    }
     fn add(self: *DataTypePartitionList, allocator: std.mem.Allocator, value: DataType) !void {
         if (value == .none) return;
         if (self.list.items.len != 0) {
@@ -1146,19 +1150,19 @@ const DataTypePartitionList = struct {
                                 .range => |r2| if (r2.intersect_split(.{ .min = wc, .max = wc })) |range_split| { //Partition into smaller ranges.
                                     if (range_split.l != null and range_split.u != null) {
                                         try self.list.replaceRange(allocator, mid_i, 1, &.{
-                                            r_or_un(range_split.l.?),
+                                            DataType.r_or_un(range_split.l.?),
                                             value,
-                                            r_or_un(range_split.u.?),
+                                            DataType.r_or_un(range_split.u.?),
                                         });
                                     } else if (range_split.l != null and range_split.u == null) {
                                         try self.list.replaceRange(allocator, mid_i, 1, &.{
-                                            r_or_un(range_split.l.?),
+                                            DataType.r_or_un(range_split.l.?),
                                             value,
                                         });
                                     } else if (range_split.l == null and range_split.u != null) {
                                         try self.list.replaceRange(allocator, mid_i, 1, &.{
                                             value,
-                                            r_or_un(range_split.u.?),
+                                            DataType.r_or_un(range_split.u.?),
                                         });
                                     }
                                     return;
@@ -1179,7 +1183,7 @@ const DataTypePartitionList = struct {
                                 .range => |r2| if (r.union_split(r2)) |range_split| {
                                     leftover_l = range_split.l;
                                     leftover_u = range_split.u;
-                                    self.list.items[mid_i] = r_or_un(range_split.i);
+                                    self.list.items[mid_i] = DataType.r_or_un(range_split.i);
                                     has_partitioned = true;
                                 },
                             }
@@ -1188,7 +1192,7 @@ const DataTypePartitionList = struct {
                             while (leftover_u) |lu| {
                                 i_ptr += 1;
                                 if (i_ptr == self.list.items.len) {
-                                    try self.list.append(allocator, r_or_un(lu));
+                                    try self.list.append(allocator, DataType.r_or_un(lu));
                                     break;
                                 }
                                 switch (self.list.items[i_ptr]) {
@@ -1196,22 +1200,22 @@ const DataTypePartitionList = struct {
                                     .unicode, .char => |wc2| if (lu.intersect_split(.{ .min = wc2, .max = wc2 })) |range_split| {
                                         leftover_u = range_split.u;
                                         if (range_split.l) |ll| {
-                                            try self.list.insert(allocator, i_ptr, r_or_un(ll));
+                                            try self.list.insert(allocator, i_ptr, DataType.r_or_un(ll));
                                             i_ptr += 1;
                                         }
                                     } else { //Break early if there are no more intersections
-                                        try self.list.insert(allocator, i_ptr, r_or_un(lu));
+                                        try self.list.insert(allocator, i_ptr, DataType.r_or_un(lu));
                                         break;
                                     },
                                     .range => |r2| if (lu.union_split(r2)) |range_split| {
                                         leftover_u = range_split.u;
-                                        self.list.items[i_ptr] = r_or_un(range_split.i);
+                                        self.list.items[i_ptr] = DataType.r_or_un(range_split.i);
                                         if (range_split.l) |ll| {
-                                            try self.list.insert(allocator, i_ptr, r_or_un(ll));
+                                            try self.list.insert(allocator, i_ptr, DataType.r_or_un(ll));
                                             i_ptr += 1;
                                         }
                                     } else {
-                                        try self.list.insert(allocator, i_ptr, r_or_un(lu));
+                                        try self.list.insert(allocator, i_ptr, DataType.r_or_un(lu));
                                         break;
                                     },
                                 }
@@ -1219,7 +1223,7 @@ const DataTypePartitionList = struct {
                             i_ptr = mid_i;
                             while (leftover_l) |ll| {
                                 if (i_ptr == 0) {
-                                    try self.list.insert(allocator, 0, r_or_un(ll));
+                                    try self.list.insert(allocator, 0, DataType.r_or_un(ll));
                                     break;
                                 }
                                 i_ptr -= 1;
@@ -1228,18 +1232,18 @@ const DataTypePartitionList = struct {
                                     .unicode, .char => |wc2| if (ll.intersect_split(.{ .min = wc2, .max = wc2 })) |range_split| {
                                         leftover_l = range_split.l;
                                         if (range_split.u) |lu|
-                                            try self.list.insert(allocator, i_ptr + 1, r_or_un(lu));
+                                            try self.list.insert(allocator, i_ptr + 1, DataType.r_or_un(lu));
                                     } else {
-                                        try self.list.insert(allocator, i_ptr + 1, r_or_un(ll));
+                                        try self.list.insert(allocator, i_ptr + 1, DataType.r_or_un(ll));
                                         break;
                                     },
                                     .range => |r2| if (ll.union_split(r2)) |range_split| {
                                         leftover_l = range_split.l;
-                                        self.list.items[i_ptr] = r_or_un(range_split.i);
+                                        self.list.items[i_ptr] = DataType.r_or_un(range_split.i);
                                         if (range_split.u) |lu|
-                                            try self.list.insert(allocator, i_ptr + 1, r_or_un(lu));
+                                            try self.list.insert(allocator, i_ptr + 1, DataType.r_or_un(lu));
                                     } else {
-                                        try self.list.insert(allocator, i_ptr + 1, r_or_un(ll));
+                                        try self.list.insert(allocator, i_ptr + 1, DataType.r_or_un(ll));
                                         break;
                                     },
                                 }
@@ -1285,13 +1289,13 @@ const DataTypePartitionList = struct {
                             .range => |r2| if (r2.intersect_split(.{ .min = wc, .max = wc })) |range_split| {
                                 if (range_split.l != null and range_split.u != null) {
                                     try self.list.replaceRange(allocator, mid_i, 1, &.{
-                                        r_or_un(range_split.l.?),
-                                        r_or_un(range_split.u.?),
+                                        DataType.r_or_un(range_split.l.?),
+                                        DataType.r_or_un(range_split.u.?),
                                     });
                                 } else if (range_split.l != null and range_split.u == null) {
-                                    self.list.items[mid_i] = r_or_un(range_split.l.?);
+                                    self.list.items[mid_i] = DataType.r_or_un(range_split.l.?);
                                 } else if (range_split.l == null and range_split.u != null) {
-                                    self.list.items[mid_i] = r_or_un(range_split.u.?);
+                                    self.list.items[mid_i] = DataType.r_or_un(range_split.u.?);
                                 }
                                 return;
                             },
@@ -1313,13 +1317,13 @@ const DataTypePartitionList = struct {
                                 const range_split = r2.intersect_split(r).?;
                                 if (range_split.l != null and range_split.u != null) {
                                     try self.list.replaceRange(allocator, mid_i, 1, &.{
-                                        r_or_un(range_split.l.?),
-                                        r_or_un(range_split.u.?),
+                                        DataType.r_or_un(range_split.l.?),
+                                        DataType.r_or_un(range_split.u.?),
                                     });
                                 } else if (range_split.l != null and range_split.u == null) {
-                                    self.list.items[mid_i] = r_or_un(range_split.l.?);
+                                    self.list.items[mid_i] = DataType.r_or_un(range_split.l.?);
                                 } else if (range_split.l == null and range_split.u != null) {
-                                    self.list.items[mid_i] = r_or_un(range_split.u.?);
+                                    self.list.items[mid_i] = DataType.r_or_un(range_split.u.?);
                                 } else try self.list.replaceRange(allocator, mid_i, 1, &.{});
                                 return;
                             } else if (r.union_split(r2)) |range_split| {
@@ -1343,7 +1347,7 @@ const DataTypePartitionList = struct {
                                         leftover_u = range_split.u;
                                         try self.list.replaceRange(allocator, mid_i, 1, &.{});
                                     } else { //Deleted range partially.
-                                        self.list.items[mid_i] = r_or_un(range_split.u.?);
+                                        self.list.items[mid_i] = DataType.r_or_un(range_split.u.?);
                                         break;
                                     }
                                 } else break,
@@ -1364,7 +1368,7 @@ const DataTypePartitionList = struct {
                                         leftover_l = range_split.l;
                                         try self.list.replaceRange(allocator, i_ptr, 1, &.{});
                                     } else {
-                                        self.list.items[i_ptr] = r_or_un(range_split.l.?);
+                                        self.list.items[i_ptr] = DataType.r_or_un(range_split.l.?);
                                         break;
                                     }
                                 } else break,
@@ -1670,16 +1674,28 @@ pub fn input_string(init: u32, ctx: *RegexStateContext, str: []const u8) *const 
 test "RegexState" {
     var rfsm: RegexFSM = try RegexFSM.init(std.testing.allocator);
     defer rfsm.deinit();
-    try rfsm.add_set_datatype(.{ .range = .{ .min = 'A', .max = 'Z' } });
-    try rfsm.add_set_datatype(.{ .range = .{ .min = 'a', .max = 'z' } });
-    try rfsm.add_set_datatype(.{ .range = .{ .min = '0', .max = '9' } });
-    try rfsm.add_set_datatype(.{ .char = '_' });
-    try rfsm.add_set();
-    try rfsm.add_set_datatype(.{ .range = .{ .min = 'A', .max = 'Z' } });
-    try rfsm.add_set_datatype(.{ .range = .{ .min = 'a', .max = 'z' } });
-    try rfsm.add_set_datatype(.{ .range = .{ .min = '0', .max = '9' } });
-    try rfsm.add_set_datatype(.{ .char = '_' });
-    try rfsm.add_set_complement();
+    try rfsm.add_datatype(.{ .char = 'a' });
+    try rfsm.add_datatype(.{ .char = 'b' });
+    try rfsm.alternation();
+    try rfsm.add_datatype(.{ .char = 'c' });
+    try rfsm.alternation();
+    try rfsm.add_datatype(.{ .char = 'd' });
+    try rfsm.add_datatype(.{ .char = 'e' });
+    try rfsm.alternation();
+    try rfsm.add_datatype(.{ .char = 'f' });
+    try rfsm.alternation();
+    try rfsm.concatenation();
+    try rfsm.add_datatype(.{ .char = 'g' });
+    try rfsm.add_datatype(.{ .char = 'h' });
+    try rfsm.alternation();
+    try rfsm.add_datatype(.{ .char = 'i' });
+    try rfsm.alternation();
+    try rfsm.concatenation();
+    try rfsm.add_datatype(.{ .char = 'j' });
+    try rfsm.add_datatype(.{ .char = 'k' });
+    try rfsm.alternation();
+    try rfsm.add_datatype(.{ .char = 'l' });
+    try rfsm.alternation();
     try rfsm.concatenation();
     std.debug.print(ESC("Sub state machines: {any}\n", .{1}), .{rfsm.substate_machines.items});
     for (rfsm.states.items) |state| std.debug.print("{}\n", .{state});

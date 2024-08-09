@@ -432,45 +432,45 @@ fn BNFParser(comptime _TermT: type, comptime _NonTermT: type, comptime _Construc
     };
 }
 const RegexBNF = BNFParser(Token, NonTermEnum, RegexEngine, &.{
-    .{ .bnf = "Regex ::= '^' MExpr '$' 'eof'           ", .func = RegexEngine.finalize },
-    .{ .bnf = "        | '^' MExpr 'eof'               ", .func = RegexEngine.finalize },
-    .{ .bnf = "        | '^' '$' 'eof'                 ", .func = RegexEngine.finalize },
-    .{ .bnf = "        | '^' 'eof'                     ", .func = RegexEngine.finalize },
-    .{ .bnf = "        | MExpr '$' 'eof'               ", .func = RegexEngine.finalize },
-    .{ .bnf = "        | MExpr 'eof'                   ", .func = RegexEngine.finalize },
-    .{ .bnf = "        | '$' 'eof'                     ", .func = RegexEngine.finalize },
-    .{ .bnf = "        | 'eof'                         ", .func = RegexEngine.finalize },
-    .{ .bnf = "MExpr ::= Expr '|' MExpr                ", .func = RegexEngine.alternation }, //TODO Write "Alternation SubExpression" rule set in SubExpr instead
-    .{ .bnf = "        | Expr MExpr                    ", .func = RegexEngine.concatenation },
-    .{ .bnf = "        |                               ", .func = RegexEngine.empty_ssm },
-    .{ .bnf = "Expr ::= SubExpr Quantifier             ", .func = RegexEngine.nothing },
-    .{ .bnf = "Quantifier ::= 'quant_gte' 'quant_lte'  ", .func = RegexEngine.quant_between },
-    .{ .bnf = "             | 'quant_gte'              ", .func = RegexEngine.quant_gte },
-    .{ .bnf = "             | 'quant_lte'              ", .func = RegexEngine.quant_lte },
-    .{ .bnf = "             | '?'                      ", .func = RegexEngine.optional },
-    .{ .bnf = "             | '*'                      ", .func = RegexEngine.kleene },
-    .{ .bnf = "             | '+'                      ", .func = RegexEngine.plus },
-    .{ .bnf = "             | 'quant_exact'            ", .func = RegexEngine.quant_exact },
-    .{ .bnf = "             |                          ", .func = RegexEngine.nothing },
-    .{ .bnf = "SubExpr ::= 'char'                      ", .func = RegexEngine.char },
-    .{ .bnf = "          | 'unicode'                   ", .func = RegexEngine.unicode },
-    .{ .bnf = "          | Group                       ", .func = RegexEngine.nothing },
-    .{ .bnf = "          | Set                         ", .func = RegexEngine.nothing },
-    .{ .bnf = "Group ::= '(' GExpr ')'                 ", .func = RegexEngine.nothing },
-    .{ .bnf = "        | '(' ')'                       ", .func = RegexEngine.nothing },
-    .{ .bnf = "GExpr ::= GMExpr GAMExpr                ", .func = RegexEngine.nothing },
-    .{ .bnf = "GMExpr ::= Expr GMExpr                  ", .func = RegexEngine.nothing },
-    .{ .bnf = "         |                              ", .func = RegexEngine.nothing },
-    .{ .bnf = "GAMExpr ::= '|' GMExpr GAMExpr          ", .func = RegexEngine.nothing },
-    .{ .bnf = "          |                             ", .func = RegexEngine.nothing },
-    .{ .bnf = "Set ::= '[' 'set^' Set2                 ", .func = RegexEngine.set_complement },
-    .{ .bnf = "      | '[' Set2                        ", .func = RegexEngine.set },
-    .{ .bnf = "Set2 ::= SetExpr Set2                   ", .func = RegexEngine.nothing },
-    .{ .bnf = "       | ']'                            ", .func = RegexEngine.nothing },
-    .{ .bnf = "SetExpr ::= 'char' '-' 'char'           ", .func = RegexEngine.set_range_char },
-    .{ .bnf = "          | 'char'                      ", .func = RegexEngine.set_char },
-    .{ .bnf = "          | 'unicode' '-' 'unicode'     ", .func = RegexEngine.set_range_unicode },
-    .{ .bnf = "          | 'unicode'                   ", .func = RegexEngine.set_unicode },
+    .{ .bnf = "Regex ::= '^' MExpr '$' 'eof'                ", .func = RegexEngine.finalize },
+    .{ .bnf = "        | '^' MExpr 'eof'                    ", .func = RegexEngine.finalize },
+    .{ .bnf = "        | '^' '$' 'eof'                      ", .func = RegexEngine.finalize },
+    .{ .bnf = "        | '^' 'eof'                          ", .func = RegexEngine.finalize },
+    .{ .bnf = "        | MExpr '$' 'eof'                    ", .func = RegexEngine.finalize },
+    .{ .bnf = "        | MExpr 'eof'                        ", .func = RegexEngine.finalize },
+    .{ .bnf = "        | '$' 'eof'                          ", .func = RegexEngine.finalize },
+    .{ .bnf = "        | 'eof'                              ", .func = RegexEngine.finalize },
+    .{ .bnf = "MExpr ::= Expr MExpr                         ", .func = RegexEngine.concatenation },
+    .{ .bnf = "        |                                    ", .func = RegexEngine.empty_ssm },
+    .{ .bnf = "Expr ::= SubExpr Quantifier '|' Expr         ", .func = RegexEngine.alternation },
+    .{ .bnf = "       | SubExpr Quantifier                  ", .func = RegexEngine.nothing },
+    .{ .bnf = "Quantifier ::= 'quant_gte' 'quant_lte'       ", .func = RegexEngine.quant_between },
+    .{ .bnf = "             | 'quant_gte'                   ", .func = RegexEngine.quant_gte },
+    .{ .bnf = "             | 'quant_lte'                   ", .func = RegexEngine.quant_lte },
+    .{ .bnf = "             | '?'                           ", .func = RegexEngine.optional },
+    .{ .bnf = "             | '*'                           ", .func = RegexEngine.kleene },
+    .{ .bnf = "             | '+'                           ", .func = RegexEngine.plus },
+    .{ .bnf = "             | 'quant_exact'                 ", .func = RegexEngine.quant_exact },
+    .{ .bnf = "             |                               ", .func = RegexEngine.nothing },
+    .{ .bnf = "SubExpr ::= 'char'                           ", .func = RegexEngine.char },
+    .{ .bnf = "          | 'unicode'                        ", .func = RegexEngine.unicode },
+    .{ .bnf = "          | Group                            ", .func = RegexEngine.nothing },
+    .{ .bnf = "          | Set                              ", .func = RegexEngine.nothing },
+    .{ .bnf = "Group ::= '(' GExpr ')'                      ", .func = RegexEngine.nothing },
+    .{ .bnf = "        | '(' ')'                            ", .func = RegexEngine.nothing },
+    .{ .bnf = "GExpr ::= GMExpr GAMExpr                     ", .func = RegexEngine.nothing },
+    .{ .bnf = "GMExpr ::= Expr GMExpr                       ", .func = RegexEngine.nothing },
+    .{ .bnf = "         |                                   ", .func = RegexEngine.nothing },
+    .{ .bnf = "GAMExpr ::= '|' GMExpr GAMExpr               ", .func = RegexEngine.nothing },
+    .{ .bnf = "          |                                  ", .func = RegexEngine.nothing },
+    .{ .bnf = "Set ::= '[' 'set^' Set2                      ", .func = RegexEngine.set_complement },
+    .{ .bnf = "      | '[' Set2                             ", .func = RegexEngine.set },
+    .{ .bnf = "Set2 ::= SetExpr Set2                        ", .func = RegexEngine.nothing },
+    .{ .bnf = "       | ']'                                 ", .func = RegexEngine.nothing },
+    .{ .bnf = "SetExpr ::= 'char' '-' 'char'                ", .func = RegexEngine.set_range_char },
+    .{ .bnf = "          | 'char'                           ", .func = RegexEngine.set_char },
+    .{ .bnf = "          | 'unicode' '-' 'unicode'          ", .func = RegexEngine.set_range_unicode },
+    .{ .bnf = "          | 'unicode'                        ", .func = RegexEngine.set_unicode },
 }, 10000);
 const RegexEngine = struct {
     allocator: std.mem.Allocator,
@@ -544,7 +544,11 @@ const RegexEngine = struct {
     }
     fn alternation(self: *RegexEngine) !void {
         std.debug.assert(self.token_stack.pop() == .@"|");
+        std.debug.print(ESC("\nSub state machines: {any}\n", .{1}), .{self.fsm.substate_machines.items});
+        for (self.fsm.states.items) |state| std.debug.print("{}\n", .{state});
         try self.fsm.alternation();
+        std.debug.print(ESC("Sub state machines: {any}\n", .{1}), .{self.fsm.substate_machines.items});
+        for (self.fsm.states.items) |state| std.debug.print("{}\n", .{state});
     }
     fn concatenation(self: *RegexEngine) !void {
         try self.fsm.concatenation();
@@ -553,7 +557,6 @@ const RegexEngine = struct {
         try self.fsm.empty();
     }
     fn finalize(self: *RegexEngine) !void {
-        std.debug.print(ESC("Regex converted to NFA\n", .{ 1, 32 }), .{});
         std.debug.print(ESC("Sub state machines: {any}\n", .{1}), .{self.fsm.substate_machines.items});
         for (self.fsm.states.items) |state| std.debug.print("{}\n", .{state});
         try self.fsm.nfa_to_dfa();
@@ -717,7 +720,7 @@ pub fn main() !void {
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .{};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-    var lexer = try RegexLexer.init(allocator, "^[^A-Za-z]");
+    var lexer = try RegexLexer.init(allocator, "^ab|c|de|f");
     defer lexer.deinit();
     const parse_tree = try create_parse_tree(allocator, lexer);
     defer _ = parse_tree.deinit(allocator);
