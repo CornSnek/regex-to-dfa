@@ -395,7 +395,7 @@ fn BNFParser(comptime _TermT: type, comptime _NonTermT: type, comptime _Construc
                 }
                 while (sym_str_it.next()) |sym_str| {
                     switch (sym_str[0]) {
-                        inline '\'', '"' => |ch| {
+                        '\'', '"' => |ch| {
                             if (sym_str[sym_str.len - 1] != ch) @compileError("Character (" ++ &[_]u8{ch} ++ ") is missing at the end for the " ++ @typeName(TermT) ++ " enum");
                             const new_sym_str = sym_str[1 .. sym_str.len - 1];
                             rule_struct.sym = rule_struct.sym ++ &[1]Symbol{.{ .t = get_t_enum(new_sym_str) }};
@@ -723,7 +723,7 @@ pub fn main() !void {
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .{};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-    var lexer = try RegexLexer.init(allocator, "^ab|c|de|f[g-h]|[i-j]");
+    var lexer = try RegexLexer.init(allocator, "^ab|c|de|f[g-h]|[^i-j]");
     defer lexer.deinit();
     const parse_tree = try create_parse_tree(allocator, lexer);
     defer _ = parse_tree.deinit(allocator);

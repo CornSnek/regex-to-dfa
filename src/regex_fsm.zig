@@ -18,7 +18,7 @@ pub fn Range(comptime IntT: type) type {
                 .u = if (intersect.max != std.math.maxInt(IntT) and this_r.max >= intersect.max + 1) .{ .min = intersect.max + 1, .max = this_r.max } else null,
             } else null;
         }
-        /// Same as `Range.intersect_split`, but .l and .u can be either partitions of this_r and/or other_r
+        /// this_r U other_r but partitioned into 1 to 3 ranges
         pub fn union_split(this_r: Range(IntT), other_r: Range(IntT)) ?RangeSplit {
             const intersect: Range(IntT) = .{ .min = @max(other_r.min, this_r.min), .max = @min(other_r.max, this_r.max) };
             return if (intersect.min <= intersect.max) .{
@@ -27,9 +27,10 @@ pub fn Range(comptime IntT: type) type {
                 .u = if (intersect.max != std.math.maxInt(IntT) and @max(this_r.max, other_r.max) >= intersect.max + 1) .{ .min = intersect.max + 1, .max = @max(this_r.max, other_r.max) } else null,
             } else null;
         }
+        /// this_r U other_r
         pub fn union_merge(this_r: Range(IntT), other_r: Range(IntT)) ?Range(IntT) {
             const intersect: Range(IntT) = .{ .min = @max(other_r.min, this_r.min), .max = @min(other_r.max, this_r.max) };
-            return if (intersect.min <= intersect.max + 1)
+            return if (intersect.min <= intersect.max +| 1)
                 .{ .min = @min(other_r.min, this_r.min), .max = @max(other_r.max, this_r.max) }
             else
                 null;
@@ -192,6 +193,27 @@ test "Range(u16) union_merge" {
     try std.testing.expectEqual(@as(
         ?Range(u16),
         .{ .min = 1, .max = 3 },
+    ), r1.union_merge(r3));
+    try std.testing.expectEqual(r1.union_merge(r3), r3.union_merge(r1));
+    try std.testing.expectEqual(@as(
+        ?Range(u16),
+        null,
+    ), r1.union_merge(r4));
+    try std.testing.expectEqual(r1.union_merge(r4), r4.union_merge(r1));
+}
+test "Range(u16) union_merge at maximum" {
+    const r1: Range(u16) = .{ .min = std.math.maxInt(u16) - 1, .max = std.math.maxInt(u16) };
+    const r2: Range(u16) = .{ .min = std.math.maxInt(u16) - 3, .max = std.math.maxInt(u16) - 2 };
+    const r3: Range(u16) = .{ .min = std.math.maxInt(u16) - 2, .max = std.math.maxInt(u16) - 1 };
+    const r4: Range(u16) = .{ .min = std.math.maxInt(u16) - 4, .max = std.math.maxInt(u16) - 3 };
+    try std.testing.expectEqual(@as(
+        ?Range(u16),
+        .{ .min = std.math.maxInt(u16) - 3, .max = std.math.maxInt(u16) },
+    ), r1.union_merge(r2));
+    try std.testing.expectEqual(r1.union_merge(r2), r2.union_merge(r1));
+    try std.testing.expectEqual(@as(
+        ?Range(u16),
+        .{ .min = std.math.maxInt(u16) - 2, .max = std.math.maxInt(u16) },
     ), r1.union_merge(r3));
     try std.testing.expectEqual(r1.union_merge(r3), r3.union_merge(r1));
     try std.testing.expectEqual(@as(
