@@ -1,6 +1,7 @@
 const std = @import("std");
 const regex_fsm = @import("regex_fsm.zig");
 const RegexFSM = regex_fsm.RegexFSM;
+const CharacterSet = regex_fsm.CharacterSet;
 test {
     _ = regex_fsm;
     _ = @import("sorted_list.zig");
@@ -11,6 +12,7 @@ const Token = union(enum) {
     quant_exact: u32,
     quant_lte: u32,
     quant_gte: u32,
+    char_set: CharacterSet,
     @"^": void,
     @"$": void,
     @"|": void,
@@ -95,6 +97,7 @@ pub const RegexLexer = struct {
                             try token_array.append(.@"[");
                             read_state = .{ .set = @intCast(i + 1) };
                         },
+                        '.' => try token_array.append(.{ .char_set = .@"." }),
                         else => try token_array.append(.{ .char = c }),
                     }
                 },
@@ -133,6 +136,12 @@ pub const RegexLexer = struct {
                             try token_array.append(.{ .unicode = num });
                             i += 4;
                         },
+                        's' => try token_array.append(.{ .char_set = .whitespace }),
+                        'S' => try token_array.append(.{ .char_set = .nonwhitespace }),
+                        'd' => try token_array.append(.{ .char_set = .digit }),
+                        'D' => try token_array.append(.{ .char_set = .nondigit }),
+                        'w' => try token_array.append(.{ .char_set = .word }),
+                        'W' => try token_array.append(.{ .char_set = .nonword }),
                         '+', '*', '?', '^', '$', '\\', '.', '[', ']', '{', '}', '(', ')', '|', '/' => |ch| try token_array.append(.{ .char = ch }),
                         '-' => if (has_minus) {
                             try token_array.append(.{ .char = '-' });
@@ -465,6 +474,7 @@ const RegexBNF = BNFParser(Token, NonTermEnum, RegexEngine, &.{
     .{ .bnf = "             |                               ", .func = RegexEngine.nothing },
     .{ .bnf = "SubExpr ::= 'char'                           ", .func = RegexEngine.char },
     .{ .bnf = "          | 'unicode'                        ", .func = RegexEngine.unicode },
+    .{ .bnf = "          | 'char_set'                       ", .func = RegexEngine.char_set },
     .{ .bnf = "          | Group                            ", .func = RegexEngine.nothing },
     .{ .bnf = "          | Set                              ", .func = RegexEngine.nothing },
     .{ .bnf = "Group ::= '(' GMExpr ')'                     ", .func = RegexEngine.clear_p },
@@ -482,6 +492,7 @@ const RegexBNF = BNFParser(Token, NonTermEnum, RegexEngine, &.{
     .{ .bnf = "          | 'char'                           ", .func = RegexEngine.set_char },
     .{ .bnf = "          | 'unicode' '-' 'unicode'          ", .func = RegexEngine.set_range_unicode },
     .{ .bnf = "          | 'unicode'                        ", .func = RegexEngine.set_unicode },
+    .{ .bnf = "          | 'char_set'                       ", .func = RegexEngine.set_char_set },
 }, 10000);
 const RegexEngine = struct {
     allocator: std.mem.Allocator,
@@ -506,6 +517,16 @@ const RegexEngine = struct {
     }
     fn unicode(self: *RegexEngine) !void {
         try self.fsm.add_datatype(.{ .unicode = self.token_stack.pop().unicode });
+    }
+    fn char_set(self: *RegexEngine) !void {
+        for (self.token_stack.pop().char_set.datatypes()) |dt| {
+            try self.fsm.add_datatype(dt);
+        }
+    }
+    fn set_char_set(self: *RegexEngine) !void {
+        for (self.token_stack.pop().char_set.datatypes()) |dt| {
+            try self.fsm.add_set_datatype(dt);
+        }
     }
     fn set_char(self: *RegexEngine) !void {
         try self.fsm.add_set_datatype(.{ .char = self.token_stack.pop().char });
@@ -596,7 +617,7 @@ const RegexEngine = struct {
 };
 /// Returns root node of the syntax tree.
 fn create_parse_tree(allocator: std.mem.Allocator, lexer: RegexLexer) !RegexBNF.SymbolNode {
-    std.debug.print("{any}\n", .{lexer.token_array.items});
+    //std.debug.print("{any}\n", .{lexer.token_array.items});
     //.r is the offset of the rules of a symbol. .i is the offset of the symbol array within a rule.
     const RuleCursor = struct {
         rule: u16 = 0,
@@ -619,18 +640,18 @@ fn create_parse_tree(allocator: std.mem.Allocator, lexer: RegexLexer) !RegexBNF.
     cursors.appendAssumeCapacity(.{ .node = &root });
     var lexer_i: u32 = 0;
     new_cursor: while (lexer_i < lexer.token_array.items.len) {
-        std.debug.print("{any} ({})\n", .{ cursors.items, cursors.items.len });
+        //std.debug.print("{any} ({})\n", .{ cursors.items, cursors.items.len });
         var cursor_now: *RuleCursor = &cursors.items[cursors.items.len - 1];
         const rule_range = RegexBNF.RuleRanges[@intFromEnum(cursor_now.node.nt.nt)];
         new_rule: while (cursor_now.rule < rule_range.count) : (cursor_now.rule += 1) {
             const rule_now = RegexBNF.Rules[rule_range.start + cursor_now.rule];
-            std.debug.print(ESC("Reading rule[{}]: {}\n", .{1}), .{ cursor_now.rule, rule_now });
+            //std.debug.print(ESC("Reading rule[{}]: {}\n", .{1}), .{ cursor_now.rule, rule_now });
             while (cursor_now.offset < rule_now.sym.len) : (cursor_now.offset += 1) {
                 const symbol_now = rule_now.sym[cursor_now.offset];
                 const term_compare = lexer.token_array.items[lexer_i];
-                std.debug.print(ESC("{} =? {} [{}]? ", .{ 1, 35 }), .{ symbol_now, term_compare, lexer_i });
+                //std.debug.print(ESC("{} =? {} [{}]? ", .{ 1, 35 }), .{ symbol_now, term_compare, lexer_i });
                 if (symbol_now == .nt) { //Search through a sub nonterminal's rules recursively.
-                    std.debug.print(ESC("Adding nonterminal {} to stack\n", .{ 1, 33 }), .{symbol_now});
+                    //std.debug.print(ESC("Adding nonterminal {} to stack\n", .{ 1, 33 }), .{symbol_now});
                     const symbol_nt = try RegexBNF.SymbolNode.init_nonterm(allocator, symbol_now.nt, 0);
                     errdefer {
                         _ = symbol_nt.deinit(allocator);
@@ -645,7 +666,7 @@ fn create_parse_tree(allocator: std.mem.Allocator, lexer: RegexLexer) !RegexBNF.
                         cursor_now.node.nt.push(try RegexBNF.SymbolNode.init_term(allocator, term_compare));
                         lexer_i += 1;
                     } else {
-                        std.debug.print(ESC("Unequal\n", .{ 1, 31 }), .{});
+                        //std.debug.print(ESC("Unequal\n", .{ 1, 31 }), .{});
                         if (cursor_now.rule != rule_range.count - 1) {
                             const children = try cursor_now.node.nt.extract(allocator);
                             defer allocator.free(children);
@@ -679,10 +700,10 @@ fn create_parse_tree(allocator: std.mem.Allocator, lexer: RegexLexer) !RegexBNF.
                             cursor_now.offset = new_offset;
                             continue :new_rule;
                         }
-                        std.debug.print(ESC("All rules are unequal\n", .{ 1, 31 }), .{});
+                        //std.debug.print(ESC("All rules are unequal\n", .{ 1, 31 }), .{});
                         _ = cursors.pop();
                         cursor_now = if (cursors.items.len != 0) &cursors.items[cursors.items.len - 1] else {
-                            std.debug.print(ESC("This is not a Regex string\n", .{ 1, 31 }), .{});
+                            //std.debug.print(ESC("This is not a Regex string\n", .{ 1, 31 }), .{});
                             return error.ParsingFailed;
                         };
                         const last_rule_node = cursor_now.node.nt.pop(); //Revert tokenizer_i if all rules are unequal.
@@ -695,7 +716,7 @@ fn create_parse_tree(allocator: std.mem.Allocator, lexer: RegexLexer) !RegexBNF.
             }
             const expected_rule = RegexBNF.Rules[rule_range.start + cursor_now.node.nt.offset];
             if (!rule_now.eq(expected_rule)) { //Change rule if the while loop skipped checking the last rule.
-                std.debug.print(ESC("Rule {}\nmismatches symbol node\nRule {}\n", .{ 1, 31 }), .{ rule_now, expected_rule });
+                //std.debug.print(ESC("Rule {}\nmismatches symbol node\nRule {}\n", .{ 1, 31 }), .{ rule_now, expected_rule });
                 const children = try cursor_now.node.nt.extract(allocator);
                 defer allocator.free(children);
                 errdefer {
@@ -727,19 +748,19 @@ fn create_parse_tree(allocator: std.mem.Allocator, lexer: RegexLexer) !RegexBNF.
                 }
                 cursor_now.offset = new_offset;
             } else { //A nonterminal rule is all equal.
-                std.debug.print(ESC("Approved rule {}\n", .{ 1, 32 }), .{rule_now});
+                //std.debug.print(ESC("Approved rule {}\n", .{ 1, 32 }), .{rule_now});
                 _ = cursors.pop();
                 if (cursors.items.len != 0) cursors.items[cursors.items.len - 1].offset += 1 else {
-                    std.debug.print(ESC("This is a Regex string\n", .{ 1, 32 }), .{});
+                    //std.debug.print(ESC("This is a Regex string\n", .{ 1, 32 }), .{});
                     return root;
                 }
             }
             continue :new_cursor;
         }
-        std.debug.print(ESC("All rules are unequal\n", .{ 1, 31 }), .{});
+        //std.debug.print(ESC("All rules are unequal\n", .{ 1, 31 }), .{});
         _ = cursors.pop();
         cursor_now = if (cursors.items.len != 0) &cursors.items[cursors.items.len - 1] else {
-            std.debug.print(ESC("This is not a Regex string\n", .{ 1, 31 }), .{});
+            //std.debug.print(ESC("This is not a Regex string\n", .{ 1, 31 }), .{});
             return error.ParsingFailed;
         };
         const last_rule_node = cursor_now.node.nt.pop(); //Revert tokenizer_i if all rules are unequal.
@@ -753,8 +774,8 @@ pub fn main() !void {
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .{};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-    //^(cat|dog|horse|snake|rabbit|cow)
-    var lexer = try RegexLexer.init(allocator, "^[a-zA-Z0-9.\\-]+$");
+    //[a-zA-Z0-9._%+\\-]+@([a-zA-Z0-9.\\-]+\\.)+[a-zA-Z]{2,}
+    var lexer = try RegexLexer.init(allocator, "^[\\S]a[\\s]$");
     defer lexer.deinit();
     const parse_tree = try create_parse_tree(allocator, lexer);
     defer _ = parse_tree.deinit(allocator);

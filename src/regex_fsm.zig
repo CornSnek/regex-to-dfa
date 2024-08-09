@@ -566,6 +566,51 @@ pub const RegexStateContext = struct {
     ///TODO
     str: []const u8 = &.{},
 };
+pub const CharacterSet = enum {
+    @".",
+    whitespace,
+    nonwhitespace,
+    digit,
+    nondigit,
+    word,
+    nonword,
+    pub fn datatypes(self: CharacterSet) []const DataType {
+        return switch (self) {
+            .@"." => &[_]DataType{
+                .{ .range = .{ .min = 0, .max = 0xffff } },
+            },
+            .whitespace => &[_]DataType{
+                .{ .range = .{ .min = 9, .max = 13 } },
+                .{ .char = ' ' },
+            },
+            .nonwhitespace => &[_]DataType{
+                .{ .range = .{ .min = 0, .max = 8 } },
+                .{ .range = .{ .min = 14, .max = ' ' - 1 } },
+                .{ .range = .{ .min = ' ' + 1, .max = 0xffff } },
+            },
+            .digit => &[_]DataType{
+                .{ .range = .{ .min = '0', .max = '9' } },
+            },
+            .nondigit => &[_]DataType{
+                .{ .range = .{ .min = 0, .max = '0' - 1 } },
+                .{ .range = .{ .min = '9' + 1, .max = 0xffff } },
+            },
+            .word => &[_]DataType{
+                .{ .range = .{ .min = '0', .max = '9' } },
+                .{ .range = .{ .min = 'A', .max = 'Z' } },
+                .{ .char = '_' },
+                .{ .range = .{ .min = 'a', .max = 'z' } },
+            },
+            .nonword => &[_]DataType{
+                .{ .range = .{ .min = 0, .max = '0' - 1 } },
+                .{ .range = .{ .min = '9' + 1, .max = 'A' - 1 } },
+                .{ .range = .{ .min = 'Z' + 1, .max = '_' - 1 } },
+                .{ .range = .{ .min = '_' + 1, .max = 'a' - 1 } },
+                .{ .range = .{ .min = 'z' + 1, .max = 0xffff } },
+            },
+        };
+    }
+};
 pub const RegexFSM = struct {
     pub const SubStateMachine = struct {
         pub const Accept = union(enum) {
