@@ -6,15 +6,13 @@ test {
     _ = regex_fsm;
     _ = @import("sorted_list.zig");
 }
-const Token = union(enum) {
+const TokenTag = union(enum) {
     char: u8,
     unicode: u16,
     quant_exact: u32,
     quant_lte: u32,
     quant_gte: u32,
     char_set: CharacterSet,
-    @"^": void,
-    @"$": void,
     @"|": void,
     @"(": void,
     @")": void,
@@ -26,9 +24,14 @@ const Token = union(enum) {
     @"*": void,
     @"+": void,
     eof: void,
-    fn eq_tag(self: Token, num: GetMinTagType(Token)) bool {
+    fn eq_tag(self: TokenTag, num: GetMinTagType(TokenTag)) bool {
         return @intFromEnum(self) == num;
     }
+};
+const Token = struct {
+    begin: u32 = 0,
+    end: u32 = 0,
+    tt: TokenTag,
 };
 /// Least amount of bits used to extract an enum out of a tagged union.
 /// Using @intFromEnum to get the enum value out of the union.
@@ -69,6 +72,7 @@ pub const RegexLexer = struct {
     };
     pub const RegexTokenArray = std.ArrayList(Token);
     token_array: RegexTokenArray,
+    str: []const u8,
     pub fn init(allocator: std.mem.Allocator, regex_str: []const u8) !RegexLexer {
         var read_state: ReadState = .begin;
         var token_array: RegexTokenArray = RegexTokenArray.init(allocator);
@@ -80,25 +84,23 @@ pub const RegexLexer = struct {
             switch (read_state) {
                 .begin => {
                     switch (c) {
-                        '^' => if (i != 0) try token_array.append(.{ .char = c }) else try token_array.append(.@"^"),
-                        '$' => if (i != regex_str.len - 1) try token_array.append(.{ .char = c }) else try token_array.append(.@"$"),
-                        '(' => try token_array.append(.@"("),
-                        ')' => try token_array.append(.@")"),
-                        '|' => try token_array.append(.@"|"),
-                        '?' => try token_array.append(.@"?"),
-                        '*' => try token_array.append(.@"*"),
-                        '+' => try token_array.append(.@"+"),
+                        '(' => try token_array.append(.{ .tt = .@"(", .begin = i, .end = i }),
+                        ')' => try token_array.append(.{ .tt = .@")", .begin = i, .end = i }),
+                        '|' => try token_array.append(.{ .tt = .@"|", .begin = i, .end = i }),
+                        '?' => try token_array.append(.{ .tt = .@"?", .begin = i, .end = i }),
+                        '*' => try token_array.append(.{ .tt = .@"*", .begin = i, .end = i }),
+                        '+' => try token_array.append(.{ .tt = .@"+", .begin = i, .end = i }),
                         '{' => read_state = .{ .quant_lhs = regex_str[i + 1 .. i + 1] }, //Set as 0 length pointing to the next character.
                         '\\' => {
                             esc_last_read_state = read_state;
                             read_state = .{ .escaped = false };
                         },
                         '[' => {
-                            try token_array.append(.@"[");
+                            try token_array.append(.{ .tt = .@"[", .begin = i, .end = i });
                             read_state = .{ .set = @intCast(i + 1) };
                         },
-                        '.' => try token_array.append(.{ .char_set = .@"." }),
-                        else => try token_array.append(.{ .char = c }),
+                        '.' => try token_array.append(.{ .tt = .{ .char_set = .@"." }, .begin = i, .end = i }),
+                        else => try token_array.append(.{ .tt = .{ .char = c }, .begin = i, .end = i }),
                     }
                 },
                 .set => |set_begin_i| {
@@ -107,44 +109,44 @@ pub const RegexLexer = struct {
                             esc_last_read_state = read_state;
                             read_state = .{ .escaped = true };
                         },
-                        '^' => if (set_begin_i != i) try token_array.append(.{ .char = '^' }) else try token_array.append(.@"set^"),
-                        '-' => try token_array.append(.@"-"),
+                        '^' => if (set_begin_i != i) try token_array.append(.{ .tt = .{ .char = '^' }, .begin = i, .end = i }) else try token_array.append(.{ .tt = .@"set^", .begin = i, .end = i }),
+                        '-' => try token_array.append(.{ .tt = .@"-", .begin = i, .end = i }),
                         ']' => {
-                            try token_array.append(.@"]");
+                            try token_array.append(.{ .tt = .@"]", .begin = i, .end = i });
                             read_state = .begin;
                         },
-                        else => try token_array.append(.{ .char = c }),
+                        else => try token_array.append(.{ .tt = .{ .char = c }, .begin = i, .end = i }),
                     }
                 },
                 .escaped => |has_minus| {
                     switch (c) {
-                        '0' => try token_array.append(.{ .char = 0 }),
-                        'v' => try token_array.append(.{ .char = 11 }),
-                        'f' => try token_array.append(.{ .char = 12 }),
-                        'r' => try token_array.append(.{ .char = '\r' }),
-                        't' => try token_array.append(.{ .char = '\t' }),
-                        'n' => try token_array.append(.{ .char = '\n' }),
+                        '0' => try token_array.append(.{ .tt = .{ .char = 0 }, .begin = i - 1, .end = i }),
+                        'v' => try token_array.append(.{ .tt = .{ .char = 11 }, .begin = i - 1, .end = i }),
+                        'f' => try token_array.append(.{ .tt = .{ .char = 12 }, .begin = i - 1, .end = i }),
+                        'r' => try token_array.append(.{ .tt = .{ .char = '\r' }, .begin = i - 1, .end = i }),
+                        't' => try token_array.append(.{ .tt = .{ .char = '\t' }, .begin = i - 1, .end = i }),
+                        'n' => try token_array.append(.{ .tt = .{ .char = '\n' }, .begin = i - 1, .end = i }),
                         'x' => {
                             if (i >= regex_str.len - 2) return LexerError.NotEnoughCharactersX;
                             const num = try std.fmt.parseInt(u8, regex_str[i + 1 .. i + 3], 16);
-                            try token_array.append(.{ .char = num });
+                            try token_array.append(.{ .tt = .{ .char = num }, .begin = i - 1, .end = i + 2 });
                             i += 2;
                         },
                         'u' => {
                             if (i >= regex_str.len - 4) return LexerError.NotEnoughCharactersU;
                             const num = try std.fmt.parseInt(u16, regex_str[i + 1 .. i + 5], 16);
-                            try token_array.append(.{ .unicode = num });
+                            try token_array.append(.{ .tt = .{ .unicode = num }, .begin = i - 1, .end = i + 4 });
                             i += 4;
                         },
-                        's' => try token_array.append(.{ .char_set = .whitespace }),
-                        'S' => try token_array.append(.{ .char_set = .nonwhitespace }),
-                        'd' => try token_array.append(.{ .char_set = .digit }),
-                        'D' => try token_array.append(.{ .char_set = .nondigit }),
-                        'w' => try token_array.append(.{ .char_set = .word }),
-                        'W' => try token_array.append(.{ .char_set = .nonword }),
-                        '+', '*', '?', '^', '$', '\\', '.', '[', ']', '{', '}', '(', ')', '|', '/' => |ch| try token_array.append(.{ .char = ch }),
+                        's' => try token_array.append(.{ .tt = .{ .char_set = .whitespace }, .begin = i - 1, .end = i }),
+                        'S' => try token_array.append(.{ .tt = .{ .char_set = .nonwhitespace }, .begin = i - 1, .end = i }),
+                        'd' => try token_array.append(.{ .tt = .{ .char_set = .digit }, .begin = i - 1, .end = i }),
+                        'D' => try token_array.append(.{ .tt = .{ .char_set = .nondigit }, .begin = i - 1, .end = i }),
+                        'w' => try token_array.append(.{ .tt = .{ .char_set = .word }, .begin = i - 1, .end = i }),
+                        'W' => try token_array.append(.{ .tt = .{ .char_set = .nonword }, .begin = i - 1, .end = i }),
+                        '+', '*', '?', '^', '$', '\\', '.', '[', ']', '{', '}', '(', ')', '|', '/' => |ch| try token_array.append(.{ .tt = .{ .char = ch }, .begin = i - 1, .end = i }),
                         '-' => if (has_minus) {
-                            try token_array.append(.{ .char = '-' });
+                            try token_array.append(.{ .tt = .{ .char = '-' }, .begin = i - 1, .end = i });
                         } else return LexerError.InvalidCharacterToEscape,
                         else => return LexerError.InvalidCharacterToEscape,
                     }
@@ -156,13 +158,13 @@ pub const RegexLexer = struct {
                         '}' => {
                             if (num_str.len == 0) return LexerError.LHSQuantifierNumberRequired;
                             const num = try std.fmt.parseInt(u32, num_str.*, 10);
-                            try token_array.append(.{ .quant_exact = num });
+                            try token_array.append(.{ .tt = .{ .quant_exact = num }, .begin = @intCast(i - num_str.len - 1), .end = i });
                             read_state = .begin;
                         },
                         ',' => {
                             if (num_str.len != 0) {
                                 const num = try std.fmt.parseInt(u32, num_str.*, 10);
-                                try token_array.append(.{ .quant_gte = num });
+                                try token_array.append(.{ .tt = .{ .quant_gte = num }, .begin = @intCast(i - num_str.len - 1), .end = i });
                                 read_state = .{ .quant_rhs_with_left = regex_str[i + 1 .. i + 1] };
                             } else {
                                 read_state = .{ .quant_rhs_no_left = regex_str[i + 1 .. i + 1] };
@@ -177,7 +179,7 @@ pub const RegexLexer = struct {
                         '}' => { //For {number1,number2} or {number1,}
                             if (num_str.len != 0) {
                                 const num = try std.fmt.parseInt(u32, num_str.*, 10);
-                                try token_array.append(.{ .quant_lte = num });
+                                try token_array.append(.{ .tt = .{ .quant_lte = num }, .begin = @intCast(i - num_str.len - 1), .end = i });
                             }
                             read_state = .begin;
                         },
@@ -190,7 +192,7 @@ pub const RegexLexer = struct {
                         '}' => { //For {,number}
                             if (num_str.len != 0) {
                                 const num = try std.fmt.parseInt(u32, num_str.*, 10);
-                                try token_array.append(.{ .quant_lte = num });
+                                try token_array.append(.{ .tt = .{ .quant_lte = num }, .begin = @intCast(i - num_str.len - 1), .end = i });
                             } else return LexerError.RHSQuantifierNumberRequired;
                             read_state = .begin;
                         },
@@ -199,14 +201,14 @@ pub const RegexLexer = struct {
                 },
             }
         }
-        try token_array.append(.eof);
+        try token_array.append(.{ .tt = .eof, .begin = i, .end = i });
         switch (read_state) {
             .escaped => return LexerError.EscapedAtEnd,
             .set => return LexerError.MissingSquareBracketEnd,
             .quant_lhs => return LexerError.MissingEndQuantifier,
             .quant_rhs_with_left => return LexerError.MissingEndCurlyBracketQuantifier,
             .quant_rhs_no_left => return LexerError.MissingEndCurlyBracketQuantifier,
-            else => return .{ .token_array = token_array },
+            else => return .{ .token_array = token_array, .str = regex_str },
         }
     }
     pub fn deinit(self: RegexLexer) void {
@@ -218,6 +220,7 @@ const NonTermEnum = enum {
     MExpr,
     Expr,
     Quantifier,
+    _ErrorRule1,
     SubExpr,
     Group,
     GMExpr,
@@ -227,9 +230,29 @@ const NonTermEnum = enum {
     Set2,
     SetExpr,
 };
-fn BNFParser(comptime _TermT: type, comptime _NonTermT: type, comptime _ConstructorT: type, comptime rules: []const struct { bnf: []const u8, func: fn (*_ConstructorT) anyerror!void }, comptime quota: u32) type {
+
+fn BNFStruct(_TokenT: type, _ConstructorT: type) type {
+    return struct {
+        const RuleCall = union(enum) {
+            accept: *const fn (*_ConstructorT) anyerror!void,
+            reject: *const fn (std.mem.Allocator, []const _TokenT) anyerror![]const u8,
+        };
+        bnf: []const u8,
+        func: RuleCall,
+    };
+}
+fn BNFParser(
+    comptime _TermT: type,
+    comptime _TokenT: type,
+    comptime term_field: []const u8,
+    comptime _NonTermT: type,
+    comptime _ConstructorT: type,
+    comptime rules: []const BNFStruct(_TokenT, _ConstructorT),
+    comptime quota: u32,
+) type {
     return struct {
         pub const TermT = _TermT;
+        pub const TokenT = _TokenT;
         pub const NonTermT = _NonTermT;
         pub const ConstructorT = _ConstructorT;
         pub const Symbol = union(enum) {
@@ -282,12 +305,12 @@ fn BNFParser(comptime _TermT: type, comptime _NonTermT: type, comptime _Construc
             }
         };
         pub const SymbolNode = union(enum) {
-            t: TermT,
+            t: TokenT,
             nt: NonTermTNode,
             /// Created on allocator because its lifetime should be a descendant of a root SymbolNode (To be deallocated)
-            pub fn init_term(allocator: std.mem.Allocator, term: TermT) !*SymbolNode {
+            pub fn init_term(allocator: std.mem.Allocator, token: TokenT) !*SymbolNode {
                 const self = try allocator.create(SymbolNode);
-                self.* = .{ .t = term };
+                self.* = .{ .t = token };
                 return self;
             }
             /// Created on allocator because its lifetime should be a descendant of a root SymbolNode (To be deallocated)
@@ -313,7 +336,7 @@ fn BNFParser(comptime _TermT: type, comptime _NonTermT: type, comptime _Construc
                 if (self == .nt) {
                     return sym.eq(.{ .nt = self.nt.nt });
                 } else {
-                    return sym.eq(.{ .t = @intFromEnum(self.t) });
+                    return sym.eq(.{ .t = @intFromEnum(@field(self.t, term_field)) });
                 }
             }
             pub fn print_tree(self: SymbolNode, comptime order: enum { pre, post }, depth: u32) void {
@@ -393,10 +416,10 @@ fn BNFParser(comptime _TermT: type, comptime _NonTermT: type, comptime _Construc
                     return i;
             } else @compileError("Unrecognized " ++ @typeName(TermT) ++ " symbol name: '" ++ t_str ++ "'");
         }
-        pub const ConstructFns = f: {
-            var _fns: []const *const fn (*_ConstructorT) anyerror!void = &.{};
+        pub const RuleCallFn = f: {
+            var _fns: []const BNFStruct(_TokenT, _ConstructorT).RuleCall = &.{};
             for (rules) |rule|
-                _fns = _fns ++ &[1]*const fn (*_ConstructorT) anyerror!void{rule.func};
+                _fns = _fns ++ &[1]BNFStruct(_TokenT, _ConstructorT).RuleCall{rule.func};
             break :f _fns;
         };
         pub const Rules = r: {
@@ -451,49 +474,62 @@ fn BNFParser(comptime _TermT: type, comptime _NonTermT: type, comptime _Construc
         };
     };
 }
-const RegexBNF = BNFParser(Token, NonTermEnum, RegexEngine, &.{
-    .{ .bnf = "Regex ::= '^' MExpr '$' 'eof'                ", .func = RegexEngine.finalize },
-    .{ .bnf = "        | '^' MExpr 'eof'                    ", .func = RegexEngine.finalize },
-    .{ .bnf = "        | '^' '$' 'eof'                      ", .func = RegexEngine.finalize },
-    .{ .bnf = "        | '^' 'eof'                          ", .func = RegexEngine.finalize },
-    .{ .bnf = "        | MExpr '$' 'eof'                    ", .func = RegexEngine.finalize },
-    .{ .bnf = "        | MExpr 'eof'                        ", .func = RegexEngine.finalize },
-    .{ .bnf = "        | '$' 'eof'                          ", .func = RegexEngine.finalize },
-    .{ .bnf = "        | 'eof'                              ", .func = RegexEngine.finalize },
-    .{ .bnf = "MExpr ::= Expr MExpr                         ", .func = RegexEngine.concatenation },
-    .{ .bnf = "        |                                    ", .func = RegexEngine.empty_ssm },
-    .{ .bnf = "Expr ::= SubExpr Quantifier '|' Expr         ", .func = RegexEngine.alternation },
-    .{ .bnf = "       | SubExpr Quantifier                  ", .func = RegexEngine.nothing },
-    .{ .bnf = "Quantifier ::= 'quant_gte' 'quant_lte'       ", .func = RegexEngine.quant_between },
-    .{ .bnf = "             | 'quant_gte'                   ", .func = RegexEngine.quant_gte },
-    .{ .bnf = "             | 'quant_lte'                   ", .func = RegexEngine.quant_lte },
-    .{ .bnf = "             | '?'                           ", .func = RegexEngine.optional },
-    .{ .bnf = "             | '*'                           ", .func = RegexEngine.kleene },
-    .{ .bnf = "             | '+'                           ", .func = RegexEngine.plus },
-    .{ .bnf = "             | 'quant_exact'                 ", .func = RegexEngine.quant_exact },
-    .{ .bnf = "             |                               ", .func = RegexEngine.nothing },
-    .{ .bnf = "SubExpr ::= 'char'                           ", .func = RegexEngine.char },
-    .{ .bnf = "          | 'unicode'                        ", .func = RegexEngine.unicode },
-    .{ .bnf = "          | 'char_set'                       ", .func = RegexEngine.char_set },
-    .{ .bnf = "          | Group                            ", .func = RegexEngine.nothing },
-    .{ .bnf = "          | Set                              ", .func = RegexEngine.nothing },
-    .{ .bnf = "Group ::= '(' GMExpr ')'                     ", .func = RegexEngine.clear_p },
-    .{ .bnf = "        | '(' ')'                            ", .func = RegexEngine.clear_p_empty_ssm },
-    .{ .bnf = "GMExpr ::= GMExpr2 GAMExpr                   ", .func = RegexEngine.nothing },
-    .{ .bnf = "GMExpr2 ::= SubExpr Quantifier GMExpr2       ", .func = RegexEngine.concatenation },
-    .{ .bnf = "         |                                   ", .func = RegexEngine.empty_ssm },
-    .{ .bnf = "GAMExpr ::= '|' GMExpr GAMExpr               ", .func = RegexEngine.alternation },
-    .{ .bnf = "          |                                  ", .func = RegexEngine.nothing },
-    .{ .bnf = "Set ::= '[' 'set^' Set2                      ", .func = RegexEngine.set_complement },
-    .{ .bnf = "      | '[' Set2                             ", .func = RegexEngine.set },
-    .{ .bnf = "Set2 ::= SetExpr Set2                        ", .func = RegexEngine.nothing },
-    .{ .bnf = "       | ']'                                 ", .func = RegexEngine.set_end },
-    .{ .bnf = "SetExpr ::= 'char' '-' 'char'                ", .func = RegexEngine.set_range_char },
-    .{ .bnf = "          | 'char'                           ", .func = RegexEngine.set_char },
-    .{ .bnf = "          | 'unicode' '-' 'unicode'          ", .func = RegexEngine.set_range_unicode },
-    .{ .bnf = "          | 'unicode'                        ", .func = RegexEngine.set_unicode },
-    .{ .bnf = "          | 'char_set'                       ", .func = RegexEngine.set_char_set },
+const RegexBNF = BNFParser(TokenTag, Token, "tt", NonTermEnum, RegexEngine, &[_]BNFStruct(Token, RegexEngine){
+    .{ .bnf = "Regex ::= MExpr 'eof'                        ", .func = .{ .accept = RegexEngine.finalize } },
+    .{ .bnf = "MExpr ::= Expr MExpr                         ", .func = .{ .accept = RegexEngine.concatenation } },
+    .{ .bnf = "        |                                    ", .func = .{ .accept = RegexEngine.empty_ssm } },
+    .{ .bnf = "Expr ::= SubExpr Quantifier '|' Expr         ", .func = .{ .accept = RegexEngine.alternation } },
+    .{ .bnf = "       | SubExpr Quantifier                  ", .func = .{ .accept = RegexEngine.nothing } },
+    .{ .bnf = "       | '|'                                 ", .func = .{ .reject = stray_alternation } },
+    .{ .bnf = "       | _ErrorRule1                         ", .func = .{ .accept = RegexEngine.nothing } },
+    .{ .bnf = "Quantifier ::= 'quant_gte' 'quant_lte'       ", .func = .{ .accept = RegexEngine.quant_between } },
+    .{ .bnf = "             | 'quant_gte'                   ", .func = .{ .accept = RegexEngine.quant_gte } },
+    .{ .bnf = "             | 'quant_lte'                   ", .func = .{ .accept = RegexEngine.quant_lte } },
+    .{ .bnf = "             | '?'                           ", .func = .{ .accept = RegexEngine.optional } },
+    .{ .bnf = "             | '*'                           ", .func = .{ .accept = RegexEngine.kleene } },
+    .{ .bnf = "             | '+'                           ", .func = .{ .accept = RegexEngine.plus } },
+    .{ .bnf = "             | 'quant_exact'                 ", .func = .{ .accept = RegexEngine.quant_exact } },
+    .{ .bnf = "             |                               ", .func = .{ .accept = RegexEngine.nothing } },
+    .{ .bnf = "_ErrorRule1 ::= 'quant_gte'                  ", .func = .{ .reject = stray_quantifier } },
+    .{ .bnf = "              | 'quant_lte'                  ", .func = .{ .reject = stray_quantifier } },
+    .{ .bnf = "              | '?'                          ", .func = .{ .reject = stray_quantifier } },
+    .{ .bnf = "              | '*'                          ", .func = .{ .reject = stray_quantifier } },
+    .{ .bnf = "              | '+'                          ", .func = .{ .reject = stray_quantifier } },
+    .{ .bnf = "              | 'quant_exact'                ", .func = .{ .reject = stray_quantifier } },
+    .{ .bnf = "SubExpr ::= 'char'                           ", .func = .{ .accept = RegexEngine.char } },
+    .{ .bnf = "          | 'unicode'                        ", .func = .{ .accept = RegexEngine.unicode } },
+    .{ .bnf = "          | 'char_set'                       ", .func = .{ .accept = RegexEngine.char_set } },
+    .{ .bnf = "          | Group                            ", .func = .{ .accept = RegexEngine.nothing } },
+    .{ .bnf = "          | Set                              ", .func = .{ .accept = RegexEngine.nothing } },
+    .{ .bnf = "Group ::= '(' GMExpr ')'                     ", .func = .{ .accept = RegexEngine.clear_p } },
+    .{ .bnf = "        | '(' ')'                            ", .func = .{ .accept = RegexEngine.clear_p_empty_ssm } },
+    .{ .bnf = "GMExpr ::= GMExpr2 GAMExpr                   ", .func = .{ .accept = RegexEngine.nothing } },
+    .{ .bnf = "GMExpr2 ::= SubExpr Quantifier GMExpr2       ", .func = .{ .accept = RegexEngine.concatenation } },
+    .{ .bnf = "         | '|'                               ", .func = .{ .reject = stray_alternation } },
+    .{ .bnf = "         | _ErrorRule1                       ", .func = .{ .accept = RegexEngine.nothing } },
+    .{ .bnf = "         |                                   ", .func = .{ .accept = RegexEngine.empty_ssm } },
+    .{ .bnf = "GAMExpr ::= '|' GMExpr GAMExpr               ", .func = .{ .accept = RegexEngine.alternation } },
+    .{ .bnf = "          |                                  ", .func = .{ .accept = RegexEngine.nothing } },
+    .{ .bnf = "Set ::= '[' 'set^' Set2                      ", .func = .{ .accept = RegexEngine.set_complement } },
+    .{ .bnf = "      | '[' Set2                             ", .func = .{ .accept = RegexEngine.set } },
+    .{ .bnf = "Set2 ::= SetExpr Set2                        ", .func = .{ .accept = RegexEngine.nothing } },
+    .{ .bnf = "       | ']'                                 ", .func = .{ .accept = RegexEngine.set_end } },
+    .{ .bnf = "SetExpr ::= 'char' '-' 'char'                ", .func = .{ .accept = RegexEngine.set_range_char } },
+    .{ .bnf = "          | 'char'                           ", .func = .{ .accept = RegexEngine.set_char } },
+    .{ .bnf = "          | 'unicode' '-' 'unicode'          ", .func = .{ .accept = RegexEngine.set_range_unicode } },
+    .{ .bnf = "          | 'unicode'                        ", .func = .{ .accept = RegexEngine.set_unicode } },
+    .{ .bnf = "          | 'char_set'                       ", .func = .{ .accept = RegexEngine.set_char_set } },
+    .{ .bnf = "          | '-'                              ", .func = .{ .reject = set_non_escaped_minus } },
 }, 10000);
+pub fn set_non_escaped_minus(allocator: std.mem.Allocator, m: []const Token) anyerror![]const u8 {
+    return std.fmt.allocPrint(allocator, "At string index[{}..{}], stray unescaped '-' found (not a range)\n", .{ m[0].begin, m[0].end });
+}
+pub fn stray_quantifier(allocator: std.mem.Allocator, q: []const Token) anyerror![]const u8 {
+    return std.fmt.allocPrint(allocator, "At string index[{}..{}], stray unescaped quantifier found.\nNo subexpression (character, unicode, character set, set, or group expression) used before this quantifier.\n", .{ q[0].begin, q[q.len - 1].end });
+}
+pub fn stray_alternation(allocator: std.mem.Allocator, a: []const Token) anyerror![]const u8 {
+    return std.fmt.allocPrint(allocator, "At string index[{}..{}], stray unescaped '|' found\n", .{ a[0].begin, a[0].end });
+}
 const RegexEngine = struct {
     allocator: std.mem.Allocator,
     fsm: RegexFSM,
@@ -506,83 +542,83 @@ const RegexEngine = struct {
         //std.debug.print(ESC("Token stack: {any}\n", .{30}), .{self.token_stack.items});
         if (node == .nt) {
             const rule_range = RegexBNF.RuleRanges[@intFromEnum(node.nt.nt)];
-            try RegexBNF.ConstructFns[rule_range.start + node.nt.offset](self);
+            try RegexBNF.RuleCallFn[rule_range.start + node.nt.offset].accept(self);
         } else {
             try self.token_stack.append(self.allocator, node.t);
         }
     }
     fn nothing(_: *RegexEngine) !void {}
     fn char(self: *RegexEngine) !void {
-        try self.fsm.add_datatype(.{ .char = self.token_stack.pop().char });
+        try self.fsm.add_datatype(.{ .char = self.token_stack.pop().tt.char });
     }
     fn unicode(self: *RegexEngine) !void {
-        try self.fsm.add_datatype(.{ .unicode = self.token_stack.pop().unicode });
+        try self.fsm.add_datatype(.{ .unicode = self.token_stack.pop().tt.unicode });
     }
     fn char_set(self: *RegexEngine) !void {
-        for (self.token_stack.pop().char_set.datatypes()) |dt| {
+        for (self.token_stack.pop().tt.char_set.datatypes()) |dt| {
             try self.fsm.add_datatype(dt);
         }
     }
     fn set_char_set(self: *RegexEngine) !void {
-        for (self.token_stack.pop().char_set.datatypes()) |dt| {
+        for (self.token_stack.pop().tt.char_set.datatypes()) |dt| {
             try self.fsm.add_set_datatype(dt);
         }
     }
     fn set_char(self: *RegexEngine) !void {
-        try self.fsm.add_set_datatype(.{ .char = self.token_stack.pop().char });
+        try self.fsm.add_set_datatype(.{ .char = self.token_stack.pop().tt.char });
     }
     fn set_unicode(self: *RegexEngine) !void {
-        try self.fsm.add_set_datatype(.{ .unicode = self.token_stack.pop().unicode });
+        try self.fsm.add_set_datatype(.{ .unicode = self.token_stack.pop().tt.unicode });
     }
     fn set_range_char(self: *RegexEngine) !void {
-        const ch_max = self.token_stack.pop().char;
-        std.debug.assert(self.token_stack.pop() == .@"-");
-        try self.fsm.add_set_datatype(.{ .range = .{ .min = self.token_stack.pop().char, .max = ch_max } });
+        const ch_max = self.token_stack.pop().tt.char;
+        std.debug.assert(self.token_stack.pop().tt == .@"-");
+        try self.fsm.add_set_datatype(.{ .range = .{ .min = self.token_stack.pop().tt.char, .max = ch_max } });
     }
     fn set_range_unicode(self: *RegexEngine) !void {
-        const un_max = self.token_stack.pop().unicode;
-        std.debug.assert(self.token_stack.pop() == .@"-");
-        try self.fsm.add_set_datatype(.{ .range = .{ .min = self.token_stack.pop().unicode, .max = un_max } });
+        const un_max = self.token_stack.pop().tt.unicode;
+        std.debug.assert(self.token_stack.pop().tt == .@"-");
+        try self.fsm.add_set_datatype(.{ .range = .{ .min = self.token_stack.pop().tt.unicode, .max = un_max } });
     }
     fn set(self: *RegexEngine) !void {
-        std.debug.assert(self.token_stack.pop() == .@"[");
+        std.debug.assert(self.token_stack.pop().tt == .@"[");
         try self.fsm.add_set();
     }
     fn set_complement(self: *RegexEngine) !void {
-        std.debug.assert(self.token_stack.pop() == .@"set^");
-        std.debug.assert(self.token_stack.pop() == .@"[");
+        std.debug.assert(self.token_stack.pop().tt == .@"set^");
+        std.debug.assert(self.token_stack.pop().tt == .@"[");
         try self.fsm.add_set_complement();
     }
     fn set_end(self: *RegexEngine) !void {
-        std.debug.assert(self.token_stack.pop() == .@"]");
+        std.debug.assert(self.token_stack.pop().tt == .@"]");
     }
     fn optional(self: *RegexEngine) !void {
-        std.debug.assert(self.token_stack.pop() == .@"?");
+        std.debug.assert(self.token_stack.pop().tt == .@"?");
         try self.fsm.optional();
     }
     fn kleene(self: *RegexEngine) !void {
-        std.debug.assert(self.token_stack.pop() == .@"*");
+        std.debug.assert(self.token_stack.pop().tt == .@"*");
         try self.fsm.kleene_star();
     }
     fn plus(self: *RegexEngine) !void {
-        std.debug.assert(self.token_stack.pop() == .@"+");
+        std.debug.assert(self.token_stack.pop().tt == .@"+");
         try self.fsm.plus();
     }
     fn quant_exact(self: *RegexEngine) !void {
-        try self.fsm.repetition(self.token_stack.pop().quant_exact);
+        try self.fsm.repetition(self.token_stack.pop().tt.quant_exact);
     }
     fn quant_between(self: *RegexEngine) !void {
-        const lte = self.token_stack.pop().quant_lte;
-        try self.fsm.repetition_between(self.token_stack.pop().quant_gte, lte);
+        const lte = self.token_stack.pop().tt.quant_lte;
+        try self.fsm.repetition_between(self.token_stack.pop().tt.quant_gte, lte);
     }
     fn quant_lte(self: *RegexEngine) !void {
-        try self.fsm.repetition_lte(self.token_stack.pop().quant_lte);
+        try self.fsm.repetition_lte(self.token_stack.pop().tt.quant_lte);
     }
     fn quant_gte(self: *RegexEngine) !void {
-        try self.fsm.repetition_gte(self.token_stack.pop().quant_gte);
+        try self.fsm.repetition_gte(self.token_stack.pop().tt.quant_gte);
     }
     fn alternation(self: *RegexEngine) !void {
-        std.debug.assert(self.token_stack.pop() == .@"|");
+        std.debug.assert(self.token_stack.pop().tt == .@"|");
         try self.fsm.alternation();
     }
     fn concatenation(self: *RegexEngine) !void {
@@ -592,13 +628,13 @@ const RegexEngine = struct {
         try self.fsm.empty();
     }
     fn clear_p_empty_ssm(self: *RegexEngine) !void {
-        std.debug.assert(self.token_stack.pop() == .@")");
-        std.debug.assert(self.token_stack.pop() == .@"(");
+        std.debug.assert(self.token_stack.pop().tt == .@")");
+        std.debug.assert(self.token_stack.pop().tt == .@"(");
         try self.fsm.empty();
     }
     fn clear_p(self: *RegexEngine) !void {
-        std.debug.assert(self.token_stack.pop() == .@")");
-        std.debug.assert(self.token_stack.pop() == .@"(");
+        std.debug.assert(self.token_stack.pop().tt == .@")");
+        std.debug.assert(self.token_stack.pop().tt == .@"(");
     }
     fn finalize(self: *RegexEngine) !void {
         std.debug.print(ESC("Sub state machines: {any}\n", .{1}), .{self.fsm.substate_machines.items});
@@ -648,7 +684,7 @@ fn create_parse_tree(allocator: std.mem.Allocator, lexer: RegexLexer) !RegexBNF.
             //std.debug.print(ESC("Reading rule[{}]: {}\n", .{1}), .{ cursor_now.rule, rule_now });
             while (cursor_now.offset < rule_now.sym.len) : (cursor_now.offset += 1) {
                 const symbol_now = rule_now.sym[cursor_now.offset];
-                const term_compare = lexer.token_array.items[lexer_i];
+                const token_compare = lexer.token_array.items[lexer_i];
                 //std.debug.print(ESC("{} =? {} [{}]? ", .{ 1, 35 }), .{ symbol_now, term_compare, lexer_i });
                 if (symbol_now == .nt) { //Search through a sub nonterminal's rules recursively.
                     //std.debug.print(ESC("Adding nonterminal {} to stack\n", .{ 1, 33 }), .{symbol_now});
@@ -661,9 +697,9 @@ fn create_parse_tree(allocator: std.mem.Allocator, lexer: RegexLexer) !RegexBNF.
                     try cursors.append(.{ .node = symbol_nt });
                     continue :new_cursor;
                 } else { //Check if terminal symbol is equal and push it.
-                    if (@intFromEnum(term_compare) == symbol_now.t) {
+                    if (@intFromEnum(token_compare.tt) == symbol_now.t) {
                         //std.debug.print(ESC("Equal\n", .{ 1, 32 }), .{});
-                        cursor_now.node.nt.push(try RegexBNF.SymbolNode.init_term(allocator, term_compare));
+                        cursor_now.node.nt.push(try RegexBNF.SymbolNode.init_term(allocator, token_compare));
                         lexer_i += 1;
                     } else {
                         //std.debug.print(ESC("Unequal\n", .{ 1, 31 }), .{});
@@ -748,6 +784,25 @@ fn create_parse_tree(allocator: std.mem.Allocator, lexer: RegexLexer) !RegexBNF.
                 }
                 cursor_now.offset = new_offset;
             } else { //A nonterminal rule is all equal.
+                const rule_call_fn = RegexBNF.RuleCallFn[rule_range.start + cursor_now.rule];
+                if (rule_call_fn == .reject) {
+                    var tokens_to_print: std.ArrayListUnmanaged(Token) = .{};
+                    defer tokens_to_print.deinit(allocator);
+                    for (cursor_now.node.nt.nodes[0..cursor_now.node.nt.count]) |token| {
+                        try tokens_to_print.append(allocator, token.t);
+                    }
+                    const error_string = try rule_call_fn.reject(allocator, tokens_to_print.items);
+                    defer allocator.free(error_string);
+                    const begin_token = tokens_to_print.items[0];
+                    const end_token = tokens_to_print.items[tokens_to_print.items.len - 1];
+                    std.debug.print("{s}\x1b[30;47;1m{s}\x1b[0m{s}\n", .{
+                        lexer.str[0..begin_token.begin],
+                        lexer.str[begin_token.begin .. end_token.end + 1],
+                        lexer.str[end_token.end + 1 ..],
+                    });
+                    std.debug.print(ESC("{s}\n", .{ 1, 31 }), .{error_string});
+                    return error.MatchedRejectedRule;
+                }
                 //std.debug.print(ESC("Approved rule {}\n", .{ 1, 32 }), .{rule_now});
                 _ = cursors.pop();
                 if (cursors.items.len != 0) cursors.items[cursors.items.len - 1].offset += 1 else {
@@ -774,8 +829,7 @@ pub fn main() !void {
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .{};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-    //[a-zA-Z0-9._%+\\-]+@([a-zA-Z0-9.\\-]+\\.)+[a-zA-Z]{2,}
-    var lexer = try RegexLexer.init(allocator, "^[\\S]a[\\s]$");
+    var lexer = try RegexLexer.init(allocator, "[\\w.%+\\-]+@([a-zA-Z0-9.\\-]+\\.+)+[a-zA-Z]{2,}");
     defer lexer.deinit();
     const parse_tree = try create_parse_tree(allocator, lexer);
     defer _ = parse_tree.deinit(allocator);
