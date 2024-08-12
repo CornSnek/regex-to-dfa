@@ -112,6 +112,11 @@ pub const RegexLexer = struct {
                         '^' => if (set_begin_i != i) try token_array.append(.{ .tt = .{ .char = '^' }, .begin = i, .end = i }) else try token_array.append(.{ .tt = .@"set^", .begin = i, .end = i }),
                         '-' => try token_array.append(.{ .tt = .@"-", .begin = i, .end = i }),
                         ']' => {
+                            if (i == set_begin_i) {
+                                highlight_error(regex_str, set_begin_i - 1, i);
+                                std.debug.print(ESC("Empty set is disallowed (all states would point to the 0 error state)\n", .{ 1, 31 }), .{});
+                                return error.LexerError;
+                            }
                             try token_array.append(.{ .tt = .@"]", .begin = i, .end = i });
                             read_state = .begin;
                         },
@@ -127,13 +132,19 @@ pub const RegexLexer = struct {
                         't' => try token_array.append(.{ .tt = .{ .char = '\t' }, .begin = i - 1, .end = i }),
                         'n' => try token_array.append(.{ .tt = .{ .char = '\n' }, .begin = i - 1, .end = i }),
                         'x' => {
-                            if (i >= regex_str.len - 2) return LexerError.NotEnoughCharactersX;
+                            if (i >= regex_str.len - 2) {
+                                std.debug.print(ESC("\\x requires 2 hexadecimal characters to parse\n", .{ 1, 31 }), .{});
+                                return error.LexerError;
+                            }
                             const num = try std.fmt.parseInt(u8, regex_str[i + 1 .. i + 3], 16);
                             try token_array.append(.{ .tt = .{ .char = num }, .begin = i - 1, .end = i + 2 });
                             i += 2;
                         },
                         'u' => {
-                            if (i >= regex_str.len - 4) return LexerError.NotEnoughCharactersU;
+                            if (i >= regex_str.len - 4) {
+                                std.debug.print(ESC("\\u requires 4 hexadecimal characters to parse\n", .{ 1, 31 }), .{});
+                                return error.LexerError;
+                            }
                             const num = try std.fmt.parseInt(u16, regex_str[i + 1 .. i + 5], 16);
                             try token_array.append(.{ .tt = .{ .unicode = num }, .begin = i - 1, .end = i + 4 });
                             i += 4;
@@ -147,8 +158,14 @@ pub const RegexLexer = struct {
                         '+', '*', '?', '^', '$', '\\', '.', '[', ']', '{', '}', '(', ')', '|', '/' => |ch| try token_array.append(.{ .tt = .{ .char = ch }, .begin = i - 1, .end = i }),
                         '-' => if (has_minus) {
                             try token_array.append(.{ .tt = .{ .char = '-' }, .begin = i - 1, .end = i });
-                        } else return LexerError.InvalidCharacterToEscape,
-                        else => return LexerError.InvalidCharacterToEscape,
+                        } else {
+                            std.debug.print(ESC("'-' is not a valid character to escape\n", .{ 1, 31 }), .{});
+                            return error.LexerError;
+                        },
+                        else => |ch| {
+                            std.debug.print(ESC("'{c}' is not a valid character to escape\n", .{ 1, 31 }), .{ch});
+                            return error.LexerError;
+                        },
                     }
                     read_state = esc_last_read_state;
                 },
@@ -156,7 +173,10 @@ pub const RegexLexer = struct {
                     switch (c) {
                         '0'...'9' => num_str.len += 1,
                         '}' => {
-                            if (num_str.len == 0) return LexerError.LHSQuantifierNumberRequired;
+                            if (num_str.len == 0) {
+                                std.debug.print(ESC("Numbers are required inside '{{' and '}}'\n", .{ 1, 31 }), .{});
+                                return error.LexerError;
+                            }
                             const num = try std.fmt.parseInt(u32, num_str.*, 10);
                             try token_array.append(.{ .tt = .{ .quant_exact = num }, .begin = @intCast(i - num_str.len - 1), .end = i });
                             read_state = .begin;
@@ -170,7 +190,10 @@ pub const RegexLexer = struct {
                                 read_state = .{ .quant_rhs_no_left = regex_str[i + 1 .. i + 1] };
                             }
                         },
-                        else => return LexerError.NotANumberQuantifier,
+                        else => {
+                            std.debug.print(ESC("Numbers are required inside '{{' and '}}'\n", .{ 1, 31 }), .{});
+                            return error.LexerError;
+                        },
                     }
                 },
                 .quant_rhs_with_left => |*num_str| {
@@ -183,7 +206,10 @@ pub const RegexLexer = struct {
                             }
                             read_state = .begin;
                         },
-                        else => return LexerError.NotANumberQuantifier,
+                        else => {
+                            std.debug.print(ESC("Numbers are required inside '{{' and '}}'\n", .{ 1, 31 }), .{});
+                            return error.LexerError;
+                        },
                     }
                 },
                 .quant_rhs_no_left => |*num_str| {
@@ -193,22 +219,27 @@ pub const RegexLexer = struct {
                             if (num_str.len != 0) {
                                 const num = try std.fmt.parseInt(u32, num_str.*, 10);
                                 try token_array.append(.{ .tt = .{ .quant_lte = num }, .begin = @intCast(i - num_str.len - 1), .end = i });
-                            } else return LexerError.RHSQuantifierNumberRequired;
+                            } else {
+                                std.debug.print(ESC("Numbers are required inside '{{' and '}}'\n", .{ 1, 31 }), .{});
+                                return error.LexerError;
+                            }
                             read_state = .begin;
                         },
-                        else => return LexerError.NotANumberQuantifier,
+                        else => {
+                            std.debug.print(ESC("Numbers are required inside '{{' and '}}'\n", .{ 1, 31 }), .{});
+                            return error.LexerError;
+                        },
                     }
                 },
             }
         }
         try token_array.append(.{ .tt = .eof, .begin = i, .end = i });
         switch (read_state) {
-            .escaped => return LexerError.EscapedAtEnd,
-            .set => return LexerError.MissingSquareBracketEnd,
-            .quant_lhs => return LexerError.MissingEndQuantifier,
-            .quant_rhs_with_left => return LexerError.MissingEndCurlyBracketQuantifier,
-            .quant_rhs_no_left => return LexerError.MissingEndCurlyBracketQuantifier,
-            else => return .{ .token_array = token_array, .str = regex_str },
+            .begin => return .{ .token_array = token_array, .str = regex_str },
+            else => {
+                std.debug.print(ESC("Unexpected end of string\n", .{ 1, 31 }), .{});
+                return error.LexerError;
+            },
         }
     }
     pub fn deinit(self: RegexLexer) void {
@@ -862,24 +893,28 @@ fn create_parse_tree(allocator: std.mem.Allocator, lexer: RegexLexer) !RegexBNF.
     }
     return root;
 }
+pub fn main_loop(allocator: std.mem.Allocator) void {
+    while (true) {
+        (err_label: {
+            std.debug.print("Type regular expression here to convert to minimized DFA: ", .{});
+            const regex_str = std.io.getStdIn().reader().readUntilDelimiterAlloc(allocator, '\n', 4096) catch |e| break :err_label e;
+            defer allocator.free(regex_str);
+            const regex_str_no_r = regex_str[0 .. regex_str.len - 1];
+            var lexer = RegexLexer.init(allocator, regex_str_no_r) catch |e| break :err_label e;
+            defer lexer.deinit();
+            const parse_tree = create_parse_tree(allocator, lexer) catch |e| break :err_label e;
+            defer _ = parse_tree.deinit(allocator);
+            var rc: RegexEngine = RegexEngine.init(allocator, lexer.str) catch |e| break :err_label e;
+            defer rc.deinit();
+            parse_tree.construct(&rc, RegexEngine.construct) catch |e| break :err_label e;
+        }) catch std.debug.print("DFA Compilation failure...\n", .{});
+    }
+}
 pub fn main() !void {
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .{};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-    var lexer = try RegexLexer.init(
-        allocator,
-        "((25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)",
-    );
-    defer lexer.deinit();
-    const parse_tree = try create_parse_tree(allocator, lexer);
-    defer _ = parse_tree.deinit(allocator);
-    parse_tree.print_tree(.pre, 0);
-    std.debug.print("\n", .{});
-    parse_tree.print_tree(.post, 0);
-    std.debug.print("\n", .{});
-    var rc: RegexEngine = try RegexEngine.init(allocator, lexer.str);
-    defer rc.deinit();
-    try parse_tree.construct(&rc, RegexEngine.construct);
+    main_loop(allocator);
 }
 pub fn ESC(comptime str: []const u8, comptime codes: anytype) []const u8 {
     if (codes.len == 0) @compileError("At least one code is required");
