@@ -79,13 +79,24 @@ pub const RegexLexer = struct {
         errdefer token_array.deinit();
         var i: u32 = 0;
         var esc_last_read_state: ReadState = undefined; //.escaped has two states to go into.
+        var p_depth: u32 = 0;
         while (i < regex_str.len) : (i += 1) {
             const c = regex_str[i];
             switch (read_state) {
                 .begin => {
                     switch (c) {
-                        '(' => try token_array.append(.{ .tt = .@"(", .begin = i, .end = i }),
-                        ')' => try token_array.append(.{ .tt = .@")", .begin = i, .end = i }),
+                        '(' => {
+                            try token_array.append(.{ .tt = .@"(", .begin = i, .end = i });
+                            p_depth += 1;
+                        },
+                        ')' => {
+                            try token_array.append(.{ .tt = .@")", .begin = i, .end = i });
+                            if (p_depth == 0) {
+                                std.debug.print(ESC("Unequal number of unescaped '(' and ')' tokens. Too many ')'.\n", .{ 1, 31 }), .{});
+                                return error.LexerError;
+                            }
+                            p_depth -= 1;
+                        },
                         '|' => try token_array.append(.{ .tt = .@"|", .begin = i, .end = i }),
                         '?' => try token_array.append(.{ .tt = .@"?", .begin = i, .end = i }),
                         '*' => try token_array.append(.{ .tt = .@"*", .begin = i, .end = i }),
@@ -232,6 +243,10 @@ pub const RegexLexer = struct {
                     }
                 },
             }
+        }
+        if (p_depth != 0) {
+            std.debug.print(ESC("Unequal number of unescaped '(' and ')'. Too many '('.\n", .{ 1, 31 }), .{});
+            return error.LexerError;
         }
         try token_array.append(.{ .tt = .eof, .begin = i, .end = i });
         switch (read_state) {
@@ -603,14 +618,13 @@ const RegexEngine = struct {
         try self.fsm.add_datatype(.{ .unicode = self.token_stack.pop().tt.unicode });
     }
     fn char_set(self: *RegexEngine) !void {
-        for (self.token_stack.pop().tt.char_set.datatypes()) |dt| {
-            try self.fsm.add_datatype(dt);
-        }
+        for (self.token_stack.pop().tt.char_set.datatypes()) |dt|
+            try self.fsm.add_set_datatype(dt);
+        try self.fsm.add_set();
     }
     fn set_char_set(self: *RegexEngine) !void {
-        for (self.token_stack.pop().tt.char_set.datatypes()) |dt| {
+        for (self.token_stack.pop().tt.char_set.datatypes()) |dt|
             try self.fsm.add_set_datatype(dt);
-        }
     }
     fn set_char(self: *RegexEngine) !void {
         try self.fsm.add_set_datatype(.{ .char = self.token_stack.pop().tt.char });
@@ -896,7 +910,7 @@ fn create_parse_tree(allocator: std.mem.Allocator, lexer: RegexLexer) !RegexBNF.
 pub fn main_loop(allocator: std.mem.Allocator) void {
     while (true) {
         (err_label: {
-            std.debug.print("Type regular expression here to convert to minimized DFA: ", .{});
+            std.debug.print("Type regular expression here to convert to minimized DFA (Ctrl+C to exit): ", .{});
             const regex_str = std.io.getStdIn().reader().readUntilDelimiterAlloc(allocator, '\n', 4096) catch |e| break :err_label e;
             defer allocator.free(regex_str);
             const regex_str_no_r = regex_str[0 .. regex_str.len - 1];
