@@ -57,19 +57,6 @@ const ReadState = union(enum) {
     quant_rhs_no_left: []const u8,
 };
 pub const RegexLexer = struct {
-    pub const LexerError = error{
-        NotEnoughCharactersX,
-        NotEnoughCharactersU,
-        InvalidCharacterToEscape,
-        EscapedAtEnd,
-        MissingSquareBracketEnd,
-        StatePopToNull,
-        LHSQuantifierNumberRequired,
-        RHSQuantifierNumberRequired,
-        MissingEndQuantifier,
-        MissingEndCurlyBracketQuantifier,
-        NotANumberQuantifier,
-    };
     pub const RegexTokenArray = std.ArrayList(Token);
     token_array: RegexTokenArray,
     str: []const u8,
