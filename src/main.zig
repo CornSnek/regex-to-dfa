@@ -2,9 +2,12 @@ const std = @import("std");
 const regex_fsm = @import("regex_fsm.zig");
 const RegexFSM = regex_fsm.RegexFSM;
 const CharacterSet = regex_fsm.CharacterSet;
+const Range = @import("range.zig").Range;
+const DataTypePartitionList = @import("DataTypePartitionList.zig");
 test {
     _ = regex_fsm;
     _ = @import("sorted_list.zig");
+    _ = Range;
 }
 const TokenTag = union(enum) {
     char: u8,
