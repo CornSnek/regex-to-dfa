@@ -136,19 +136,29 @@ pub const Transition = struct {
         if (self.to != other.to) return false;
         return self.dtype.eq(other.dtype);
     }
-    /// Redundant or connected points/ranges are combined
+    /// Redundant or connected points/ranges are combined. ErrorState transitions are removed (Already implied to point to ErrorState)
     pub fn union_merge(self: *[]Transition, allocator: std.mem.Allocator) !void {
         if (self.len == 0) return;
         std.sort.block(Transition, self.*, {}, Transition.lt);
         var t_ptr: usize = self.len - 1;
         var new_self_len: usize = self.len;
         var cmp_tr = self.*[t_ptr];
+        var dtype_merges: usize = 0;
+        if (self.*[t_ptr].to == RegexState.ErrorState) { //From sort, last as .to ErrorState => every transition is .to ErrorState
+            allocator.free(self.*);
+            self.* = &.{};
+            return;
+        }
+        t_ptr = self.len - 1;
         var copy_len: usize = 0;
         var nonconnected: usize = 0;
         var merged_ranges: usize = 0;
-        var dtype_links: usize = 0;
         while (t_ptr != 0) : (t_ptr -= 1) { //Merge connected ranges and points backwards
             const cmp_next_tr = self.*[t_ptr - 1];
+            if (cmp_next_tr.to == RegexState.ErrorState) {
+                dtype_merges += t_ptr; //The rest all point to ErrorState
+                break;
+            }
             no_merged_range: {
                 if (cmp_tr.to != cmp_next_tr.to) break :no_merged_range;
                 const cmp_tr_r: Range(u16) = switch (cmp_tr.dtype) {
@@ -163,11 +173,11 @@ pub const Transition = struct {
                 };
                 if (cmp_tr_r.union_merge(cmp_next_tr_r)) |merged_range| {
                     cmp_tr.dtype = .{ .range = merged_range };
-                    dtype_links += 1;
+                    dtype_merges += 1;
                     continue;
                 }
             }
-            if (dtype_links == 0) {
+            if (dtype_merges == 0) {
                 copy_len += 1;
                 nonconnected += 1;
                 cmp_tr = cmp_next_tr;
@@ -181,53 +191,77 @@ pub const Transition = struct {
             std.mem.copyForwards(Transition, self.*[t_ptr + 1 ..], self.*[new_self_len - copy_len .. new_self_len]);
             merged_ranges += 1;
             copy_len = merged_ranges + nonconnected;
-            new_self_len -= dtype_links;
-            dtype_links = 0;
+            new_self_len -= dtype_merges;
+            dtype_merges = 0;
             cmp_tr.dtype = cmp_next_tr.dtype;
         }
-        if (dtype_links != 0) {
+        if (dtype_merges != 0) {
             self.*[0].dtype = switch (cmp_tr.dtype) {
                 .none => unreachable,
                 .char, .unicode => cmp_tr.dtype,
                 .range => |r| DataType.r_or_un(r),
             };
+            if (self.*[0].to == RegexState.ErrorState) self.*[0].to = cmp_tr.to;
             std.mem.copyForwards(Transition, self.*[1..], self.*[new_self_len - copy_len .. new_self_len]);
-            new_self_len -= dtype_links;
+            new_self_len -= dtype_merges;
         }
         self.* = try allocator.realloc(self.*, new_self_len);
     }
 };
 test "Transition merge merge ranges together" {
     var transitions = try std.testing.allocator.dupe(Transition, &[_]Transition{
-        .{ .to = 0, .dtype = .{ .char = 2 } },
-        .{ .to = 0, .dtype = .{ .char = 3 } },
-        .{ .to = 0, .dtype = .{ .char = 4 } },
-        .{ .to = 0, .dtype = .{ .char = 6 } },
-        .{ .to = 0, .dtype = .{ .char = 8 } },
-        .{ .to = 0, .dtype = .{ .char = 11 } },
-        .{ .to = 0, .dtype = .{ .char = 12 } },
-        .{ .to = 0, .dtype = .{ .char = 13 } },
-        .{ .to = 0, .dtype = .{ .char = 14 } },
-        .{ .to = 0, .dtype = .{ .char = 15 } },
-        .{ .to = 0, .dtype = .{ .char = 18 } },
-        .{ .to = 0, .dtype = .{ .char = 21 } },
-        .{ .to = 0, .dtype = .{ .char = 22 } },
-        .{ .to = 0, .dtype = .{ .char = 23 } },
-        .{ .to = 0, .dtype = .{ .char = 24 } },
-        .{ .to = 0, .dtype = .{ .char = 25 } },
+        .{ .to = 1, .dtype = .{ .char = 2 } },
+        .{ .to = 1, .dtype = .{ .char = 3 } },
+        .{ .to = 1, .dtype = .{ .char = 4 } },
+        .{ .to = 1, .dtype = .{ .char = 6 } },
+        .{ .to = 1, .dtype = .{ .char = 8 } },
+        .{ .to = 1, .dtype = .{ .char = 11 } },
+        .{ .to = 1, .dtype = .{ .char = 12 } },
+        .{ .to = 1, .dtype = .{ .char = 13 } },
+        .{ .to = 1, .dtype = .{ .char = 14 } },
+        .{ .to = 1, .dtype = .{ .char = 15 } },
+        .{ .to = 1, .dtype = .{ .char = 18 } },
+        .{ .to = 1, .dtype = .{ .char = 21 } },
+        .{ .to = 1, .dtype = .{ .char = 22 } },
+        .{ .to = 1, .dtype = .{ .char = 23 } },
+        .{ .to = 1, .dtype = .{ .char = 24 } },
+        .{ .to = 1, .dtype = .{ .char = 25 } },
     });
     defer std.testing.allocator.free(transitions);
     try Transition.union_merge(&transitions, std.testing.allocator);
     try std.testing.expectEqualSlices(Transition, &.{
-        .{ .to = 0, .dtype = .{ .range = .{ .min = 2, .max = 4 } } },
-        .{ .to = 0, .dtype = .{ .char = 6 } },
-        .{ .to = 0, .dtype = .{ .char = 8 } },
-        .{ .to = 0, .dtype = .{ .range = .{ .min = 11, .max = 15 } } },
-        .{ .to = 0, .dtype = .{ .char = 18 } },
-        .{ .to = 0, .dtype = .{ .range = .{ .min = 21, .max = 25 } } },
+        .{ .to = 1, .dtype = .{ .range = .{ .min = 2, .max = 4 } } },
+        .{ .to = 1, .dtype = .{ .char = 6 } },
+        .{ .to = 1, .dtype = .{ .char = 8 } },
+        .{ .to = 1, .dtype = .{ .range = .{ .min = 11, .max = 15 } } },
+        .{ .to = 1, .dtype = .{ .char = 18 } },
+        .{ .to = 1, .dtype = .{ .range = .{ .min = 21, .max = 25 } } },
     }, transitions);
 }
 test "Transition merge remove duplicates" {
+    var transitions = try std.testing.allocator.dupe(Transition, &[_]Transition{
+        .{ .to = 1, .dtype = .{ .unicode = 'a' } },
+        .{ .to = 1, .dtype = .{ .unicode = 'b' } },
+        .{ .to = 1, .dtype = .{ .unicode = 'c' } },
+        .{ .to = 1, .dtype = .{ .unicode = 'd' } },
+        .{ .to = 1, .dtype = .{ .unicode = 'A' } },
+        .{ .to = 1, .dtype = .{ .unicode = 'B' } },
+        .{ .to = 1, .dtype = .{ .unicode = 'C' } },
+        .{ .to = 1, .dtype = .{ .unicode = 'D' } },
+        .{ .to = 1, .dtype = .{ .unicode = 'b' } },
+        .{ .to = 1, .dtype = .{ .unicode = 'c' } },
+        .{ .to = 1, .dtype = .{ .unicode = 'd' } },
+        .{ .to = 1, .dtype = .{ .unicode = 'e' } },
+        .{ .to = 1, .dtype = .{ .unicode = 'C' } },
+    });
+    defer std.testing.allocator.free(transitions);
+    try Transition.union_merge(&transitions, std.testing.allocator);
+    try std.testing.expectEqualSlices(Transition, &.{
+        .{ .to = 1, .dtype = .{ .range = .{ .min = 'A', .max = 'D' } } },
+        .{ .to = 1, .dtype = .{ .range = .{ .min = 'a', .max = 'e' } } },
+    }, transitions);
+}
+test "Transition merge remove ErrorStates" {
     var transitions = try std.testing.allocator.dupe(Transition, &[_]Transition{
         .{ .to = 0, .dtype = .{ .unicode = 'a' } },
         .{ .to = 0, .dtype = .{ .unicode = 'b' } },
@@ -245,9 +279,30 @@ test "Transition merge remove duplicates" {
     });
     defer std.testing.allocator.free(transitions);
     try Transition.union_merge(&transitions, std.testing.allocator);
+    try std.testing.expectEqualSlices(Transition, &.{}, transitions);
+}
+test "Transition merge remove ErrorStates 2" {
+    var transitions = try std.testing.allocator.dupe(Transition, &[_]Transition{
+        .{ .to = 1, .dtype = .{ .unicode = 'a' } },
+        .{ .to = 0, .dtype = .{ .unicode = 'b' } },
+        .{ .to = 0, .dtype = .{ .unicode = 'c' } },
+        .{ .to = 0, .dtype = .{ .unicode = 'd' } },
+        .{ .to = 0, .dtype = .{ .unicode = 'A' } },
+        .{ .to = 1, .dtype = .{ .unicode = 'B' } },
+        .{ .to = 1, .dtype = .{ .unicode = 'C' } },
+        .{ .to = 0, .dtype = .{ .unicode = 'D' } },
+        .{ .to = 0, .dtype = .{ .unicode = 'b' } },
+        .{ .to = 1, .dtype = .{ .unicode = 'c' } },
+        .{ .to = 0, .dtype = .{ .unicode = 'd' } },
+        .{ .to = 0, .dtype = .{ .unicode = 'e' } },
+        .{ .to = 0, .dtype = .{ .unicode = 'C' } },
+    });
+    defer std.testing.allocator.free(transitions);
+    try Transition.union_merge(&transitions, std.testing.allocator);
     try std.testing.expectEqualSlices(Transition, &.{
-        .{ .to = 0, .dtype = .{ .range = .{ .min = 'A', .max = 'D' } } },
-        .{ .to = 0, .dtype = .{ .range = .{ .min = 'a', .max = 'e' } } },
+        .{ .to = 1, .dtype = .{ .range = .{ .min = 'B', .max = 'C' } } },
+        .{ .to = 1, .dtype = .{ .unicode = 'a' } },
+        .{ .to = 1, .dtype = .{ .unicode = 'c' } },
     }, transitions);
 }
 pub const RegexState = struct {
@@ -663,7 +718,7 @@ pub const RegexFSM = struct {
             const dt_partitions = try self.get_partitions(this_ss);
             defer self.allocator.free(dt_partitions);
             for (dt_partitions) |dt_partition| {
-                var reachable: SortedIntList(u32) = .{};
+                var reachable: SortedIntList(u32, .lt) = .{};
                 defer reachable.deinit(self.allocator);
                 for (this_ss) |state_i| {
                     const state = self.states.items[state_i];
@@ -807,7 +862,7 @@ pub const RegexFSM = struct {
         while (pair_hm_it.next()) |kv|
             if (!kv.value_ptr.*)
                 try pq_pairs.add(kv.key_ptr.*);
-        var just_deleted: SortedIntList(u32) = .{};
+        var just_deleted: SortedIntList(u32, .lt) = .{};
         defer just_deleted.deinit(self.allocator);
         while (pq_pairs.removeOrNull()) |pair| {
             std.debug.print(ESC("Possible merge {} and {}\n", .{30}), .{ pair.P, pair.Q });
@@ -827,6 +882,47 @@ pub const RegexFSM = struct {
         }
         pub fn highest_state_sort(_: void, a: EquivalenceClass, b: EquivalenceClass) bool {
             return a.state > b.state;
+        }
+    };
+    const RingBufferPQ = std.PriorityQueue(RingBuffer(u32), void, struct {
+        fn f(_: void, a: RingBuffer(u32), b: RingBuffer(u32)) std.math.Order {
+            return std.math.order(b.buffer[b.head], a.buffer[a.head]);
+        }
+    }.f);
+    const EQPartitions = struct {
+        const Range = struct {
+            begin: usize,
+            count: usize,
+        };
+        fn get(allocator: std.mem.Allocator, eq_classes: []EquivalenceClass, group_i: u32) ![]EQPartitions.Range {
+            var first_i_arr: std.ArrayListUnmanaged(EQPartitions.Range) = .{};
+            errdefer first_i_arr.deinit(allocator);
+            try first_i_arr.append(allocator, .{ .begin = 0, .count = undefined });
+            std.sort.block(EquivalenceClass, eq_classes, {}, EquivalenceClass.group_then_state_sort);
+            next_num: for (1..group_i) |eq_c| { //Binary search the first index of each group > 0.
+                var low_i: usize = 0;
+                var high_i: usize = eq_classes.len - 1;
+                var mid_i = high_i / 2;
+                while (high_i >= low_i) : (mid_i = (high_i + low_i) / 2) {
+                    if (eq_c == eq_classes[mid_i].group and eq_c == eq_classes[mid_i - 1].group + 1) {
+                        try first_i_arr.append(allocator, .{ .begin = mid_i, .count = undefined });
+                        continue :next_num;
+                    }
+                    if (eq_c > eq_classes[mid_i].group) {
+                        low_i = mid_i + 1;
+                    } else {
+                        if (mid_i != 1) {
+                            high_i = mid_i - 1;
+                        } else unreachable; //Should be contiguous
+                    }
+                }
+                unreachable;
+            }
+            for (first_i_arr.items[0 .. first_i_arr.items.len - 1], first_i_arr.items[1..first_i_arr.items.len]) |*r0, r1| {
+                r0.count = r1.begin - r0.begin;
+            }
+            first_i_arr.items[first_i_arr.items.len - 1].count = eq_classes.len - first_i_arr.items[first_i_arr.items.len - 1].begin;
+            return first_i_arr.toOwnedSlice(allocator);
         }
     };
     pub fn hopcroft_algorithm(self: *RegexFSM) !void {
@@ -939,47 +1035,6 @@ pub const RegexFSM = struct {
         try self._finish_dfa_minimization(&ssm);
         std.debug.print(ESC("DFA minimization hopcroft_algorithm complete\n", .{ 1, 32 }), .{});
     }
-    const RingBufferPQ = std.PriorityQueue(RingBuffer(u32), void, struct {
-        fn f(_: void, a: RingBuffer(u32), b: RingBuffer(u32)) std.math.Order {
-            return std.math.order(b.buffer[b.head], a.buffer[a.head]);
-        }
-    }.f);
-    const EQPartitions = struct {
-        const Range = struct {
-            begin: usize,
-            count: usize,
-        };
-        fn get(allocator: std.mem.Allocator, eq_classes: []EquivalenceClass, group_i: u32) ![]EQPartitions.Range {
-            var first_i_arr: std.ArrayListUnmanaged(EQPartitions.Range) = .{};
-            errdefer first_i_arr.deinit(allocator);
-            try first_i_arr.append(allocator, .{ .begin = 0, .count = undefined });
-            std.sort.block(EquivalenceClass, eq_classes, {}, EquivalenceClass.group_then_state_sort);
-            next_num: for (1..group_i) |eq_c| { //Binary search the first index of each group > 0.
-                var low_i: usize = 0;
-                var high_i: usize = eq_classes.len - 1;
-                var mid_i = high_i / 2;
-                while (high_i >= low_i) : (mid_i = (high_i + low_i) / 2) {
-                    if (eq_c == eq_classes[mid_i].group and eq_c == eq_classes[mid_i - 1].group + 1) {
-                        try first_i_arr.append(allocator, .{ .begin = mid_i, .count = undefined });
-                        continue :next_num;
-                    }
-                    if (eq_c > eq_classes[mid_i].group) {
-                        low_i = mid_i + 1;
-                    } else {
-                        if (mid_i != 1) {
-                            high_i = mid_i - 1;
-                        } else unreachable; //Should be contiguous
-                    }
-                }
-                unreachable;
-            }
-            for (first_i_arr.items[0 .. first_i_arr.items.len - 1], first_i_arr.items[1..first_i_arr.items.len]) |*r0, r1| {
-                r0.count = r1.begin - r0.begin;
-            }
-            first_i_arr.items[first_i_arr.items.len - 1].count = eq_classes.len - first_i_arr.items[first_i_arr.items.len - 1].begin;
-            return first_i_arr.toOwnedSlice(allocator);
-        }
-    };
     /// State and transitions are merged into state1_1.
     fn merge_states(self: *RegexFSM, state1_i: u32, state2_i: u32, merged_states: []u32) !void {
         std.debug.print(ESC("Merging state {[1]} into {[0]}\n", .{ 1, 33 }), .{ state1_i, state2_i });
@@ -1020,7 +1075,7 @@ pub const RegexFSM = struct {
         }
     }
     fn get_reachable_states(self: RegexFSM, comptime for_type: enum { NFA, DFA }, at_states: []const u32) ![]u32 {
-        var set: SortedIntList(u32) = .{};
+        var set: SortedIntList(u32, .lt) = .{};
         errdefer set.deinit(self.allocator);
         var visit: std.ArrayListUnmanaged(u32) = .{};
         defer visit.deinit(self.allocator);

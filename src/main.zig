@@ -721,9 +721,6 @@ const RegexEngine = struct {
         try self.fsm.hopcroft_algorithm();
         std.debug.print(ESC("Sub state machines: {any}\n", .{1}), .{self.fsm.substate_machines.items});
         for (self.fsm.states.items) |state| std.debug.print("{}\n", .{state});
-        try self.fsm.hopcroft_algorithm();
-        std.debug.print(ESC("Sub state machines: {any}\n", .{1}), .{self.fsm.substate_machines.items});
-        for (self.fsm.states.items) |state| std.debug.print("{}\n", .{state});
     }
     fn deinit(self: *RegexEngine) void {
         self.token_stack.deinit(self.allocator);

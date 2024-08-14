@@ -1,11 +1,12 @@
 const std = @import("std");
-pub fn SortedIntList(comptime IntT: type) type {
-    return SortedList(IntT, IntTCmp(IntT));
+pub const SortedIntListType = enum { lt, gt };
+pub fn SortedIntList(comptime IntT: type, comptime list_type: SortedIntListType) type {
+    return SortedList(IntT, IntTCmp(IntT, list_type));
 }
-pub fn IntTCmp(IntT: type) type {
+pub fn IntTCmp(IntT: type, comptime list_type: SortedIntListType) type {
     return struct {
         pub fn lt(a: IntT, b: IntT) bool {
-            return a < b;
+            return if (list_type == .lt) a < b else a > b;
         }
         pub fn eq(a: IntT, b: IntT) bool {
             return a == b;
@@ -39,6 +40,26 @@ pub fn SortedList(comptime T: type, comptime Cmp: anytype) type {
             try self.list.append(allocator, value);
             return true;
         }
+        pub fn remove(self: *@This(), value: T) !void {
+            if (self.list.items.len == 0) return;
+            var low_i: usize = 0;
+            var high_i: usize = self.list.items.len - 1;
+            var mid_i = high_i / 2;
+            while (high_i >= low_i) : (mid_i = (high_i + low_i) / 2) {
+                if (Cmp.eq(value, self.list.items[mid_i])) {
+                    try self.list.orderedRemove(mid_i);
+                    return;
+                }
+                if (Cmp.lt(self.list.items[mid_i], value)) {
+                    low_i = mid_i + 1;
+                } else {
+                    if (mid_i != 0) {
+                        high_i = mid_i - 1;
+                    } else return;
+                }
+            }
+            return;
+        }
         pub fn exists(self: @This(), value: T) bool {
             if (self.list.items.len == 0) return false;
             var low_i: usize = 0;
@@ -65,7 +86,7 @@ pub fn SortedList(comptime T: type, comptime Cmp: anytype) type {
     };
 }
 test SortedList {
-    var sl: SortedIntList(u32) = .{};
+    var sl: SortedIntList(u32, .lt) = .{};
     defer sl.deinit(std.testing.allocator);
     try std.testing.expect(sl.eq_slice(&.{}));
     try std.testing.expect(try sl.insert_unique(std.testing.allocator, 3));
