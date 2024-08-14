@@ -718,7 +718,7 @@ const RegexEngine = struct {
         try self.fsm.nfa_to_dfa();
         std.debug.print(ESC("Sub state machines: {any}\n", .{1}), .{self.fsm.substate_machines.items});
         for (self.fsm.states.items) |state| std.debug.print("{}\n", .{state});
-        try self.fsm.myhill_nerode();
+        try self.fsm.hopcroft_algorithm();
         std.debug.print(ESC("Sub state machines: {any}\n", .{1}), .{self.fsm.substate_machines.items});
         for (self.fsm.states.items) |state| std.debug.print("{}\n", .{state});
     }
@@ -911,7 +911,10 @@ pub fn main_loop(allocator: std.mem.Allocator) void {
             var rc: RegexEngine = RegexEngine.init(allocator, lexer.str) catch |e| break :err_label e;
             defer rc.deinit();
             parse_tree.construct(&rc, RegexEngine.construct) catch |e| break :err_label e;
-        }) catch std.debug.print("DFA Compilation failure...\n", .{});
+        }) catch {
+            std.debug.print("DFA Compilation failure...\n", .{});
+            return;
+        };
     }
 }
 pub fn main() !void {

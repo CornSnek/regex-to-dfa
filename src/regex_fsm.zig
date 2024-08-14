@@ -2,7 +2,7 @@ const std = @import("std");
 const ESC = @import("main.zig").ESC;
 const SortedList = @import("sorted_list.zig").SortedList;
 const SortedIntList = @import("sorted_list.zig").SortedIntList;
-const RingBufferQueue = @import("ring_buffer.zig").RingBufferQueue;
+const RingBuffer = @import("ring_buffer.zig").RingBuffer;
 const Range = @import("range.zig").Range;
 /// This sorts Datatypes (excluding .none) and partition ranges into smaller ranges.
 const DataTypePartitionList = @import("DataTypePartitionList.zig");
@@ -647,15 +647,15 @@ pub const RegexFSM = struct {
         const dfa_init: u32 = ssm.accept.NFA + 1;
         var powerset_hm: PowerSetHashMap = .{ .state_i = @intCast(self.states.items.len) };
         defer powerset_hm.deinit(self.allocator);
-        var iterate_subsets = try RingBufferQueue([]const u32).init(self.allocator);
+        var iterate_subsets = try RingBuffer([]const u32).init(self.allocator);
         defer iterate_subsets.deinit(self.allocator);
         var merged_accept_states: std.ArrayListUnmanaged(u32) = .{};
         errdefer merged_accept_states.deinit(self.allocator);
         const init_ss = try self.get_reachable_states(.NFA, &.{ssm.init});
         try powerset_hm.put(self.allocator, init_ss);
-        try iterate_subsets.enqueue(self.allocator, init_ss);
+        try iterate_subsets.tail_push(self.allocator, init_ss);
         while (iterate_subsets.len() != 0) {
-            const this_ss = iterate_subsets.dequeue_non_empty();
+            const this_ss = iterate_subsets.head_pop_non_empty();
             const this_ss_sp = powerset_hm.get_properties(self, this_ss);
             if (this_ss_sp.accept) try merged_accept_states.append(self.allocator, this_ss_sp.id - shift_ssm); //Shift by size of NFA
             try self.states.append(self.allocator, .{ .id = this_ss_sp.id, .accept = this_ss_sp.accept, .transitions = try self.allocator.alloc(Transition, 0) });
@@ -684,7 +684,7 @@ pub const RegexFSM = struct {
                 if (reachable.list.items.len != 0) { //Add every non-error state transition and any new subset state to iterate.
                     const new_ss = try self.get_reachable_states(.NFA, reachable.list.items);
                     const putgp = try powerset_hm.put_get_properties(self.allocator, new_ss);
-                    if (putgp.is_new) try iterate_subsets.enqueue(self.allocator, new_ss);
+                    if (putgp.is_new) try iterate_subsets.tail_push(self.allocator, new_ss);
                     const this_ss_state = &self.states.items[this_ss_sp.id];
                     this_ss_state.transitions = try self.allocator.realloc(this_ss_state.transitions, this_ss_state.transitions.len + 1);
                     this_ss_state.transitions[this_ss_state.transitions.len - 1] = .{ .to = putgp.state, .dtype = dt_partition };
@@ -719,6 +719,21 @@ pub const RegexFSM = struct {
         }.f;
         const PQ = std.PriorityQueue(MergeGroup, void, MergeGroup.PQSort);
     };
+    fn _finish_dfa_minimization(self: *RegexFSM, ssm: *SubStateMachine) !void {
+        var new_accept: std.ArrayListUnmanaged(u32) = .{};
+        defer new_accept.deinit(self.allocator);
+        const merged_states2 = try self.get_reachable_states(.DFA, &.{ssm.init});
+        defer self.allocator.free(merged_states2);
+        for (merged_states2) |state_i| {
+            try Transition.union_merge(&self.states.items[state_i].transitions, self.allocator);
+            if (self.states.items[state_i].accept) try new_accept.append(self.allocator, state_i);
+        }
+        const new_accept_str = try new_accept.toOwnedSlice(self.allocator);
+        ssm.deinit(self.allocator);
+        ssm.accept = .{ .DFA = new_accept_str };
+        self.substate_machines.appendAssumeCapacity(ssm.*);
+        std.debug.print(ESC("DFA minimization complete\n", .{ 1, 32 }), .{});
+    }
     pub fn myhill_nerode(self: *RegexFSM) !void {
         var ssm = self.substate_machines.pop();
         std.debug.assert(ssm.accept == .DFA);
@@ -800,23 +815,233 @@ pub const RegexFSM = struct {
             if (!try just_deleted.insert_unique(self.allocator, pair.Q)) continue; //Don't merge Q state number twice.
             try self.merge_states(pair.P, pair.Q, merged_states[0 .. merged_states.len - just_deleted.list.items.len + 1]);
         }
-        var new_accept: std.ArrayListUnmanaged(u32) = .{};
-        defer new_accept.deinit(self.allocator);
-        const merged_states2 = try self.get_reachable_states(.DFA, &.{ssm.init});
-        defer self.allocator.free(merged_states2);
-        for (merged_states2) |state_i| {
-            try Transition.union_merge(&self.states.items[state_i].transitions, self.allocator);
-            if (self.states.items[state_i].accept) try new_accept.append(self.allocator, state_i);
-        }
-        const new_accept_str = try new_accept.toOwnedSlice(self.allocator);
-        ssm.deinit(self.allocator);
-        ssm.accept = .{ .DFA = new_accept_str };
-        self.substate_machines.appendAssumeCapacity(ssm);
-        std.debug.print(ESC("DFA minimization complete\n", .{ 1, 32 }), .{});
+        try self._finish_dfa_minimization(&ssm);
     }
+    const EquivalenceClass = struct {
+        group: u32,
+        state: u32,
+        accept: bool,
+        pub fn group_then_state_sort(_: void, a: EquivalenceClass, b: EquivalenceClass) bool {
+            if (a.group != b.group) return a.group < b.group;
+            return a.state < b.state;
+        }
+        pub fn highest_state_sort(_: void, a: EquivalenceClass, b: EquivalenceClass) bool {
+            return a.state > b.state;
+        }
+    };
+    pub fn hopcroft_algorithm(self: *RegexFSM) !void {
+        var ssm = self.substate_machines.pop();
+        std.debug.assert(ssm.accept == .DFA);
+        errdefer ssm.deinit(self.allocator);
+        const merged_states = try self.get_reachable_states(.DFA, &.{ RegexState.ErrorState, ssm.init });
+        defer self.allocator.free(merged_states);
+        const dt_partitions = try self.get_partitions(merged_states);
+        defer self.allocator.free(dt_partitions);
+        var eq_classes = try self.allocator.alloc(EquivalenceClass, merged_states.len);
+        defer self.allocator.free(eq_classes);
+        for (merged_states, 0..) |state, i| {
+            var ec: EquivalenceClass = undefined;
+            ec.state = state;
+            ec.group = @as(u32, @intFromBool(self.states.items[state].accept));
+            ec.accept = self.states.items[state].accept;
+            eq_classes[i] = ec;
+        }
+        {
+            var group_i: u32 = 2;
+            var eq_structs = try EQStructs.init(self, eq_classes, dt_partitions, group_i);
+            defer eq_structs.deinit(self.allocator);
+            var has_changed: bool = true;
+            while (has_changed) {
+                has_changed = false;
+                try eq_structs.update_first_i_arr(self.allocator, eq_classes, group_i);
+                for (0..group_i) |group_ptr| {
+                    const offset = eq_structs.first_i_arr.items[group_ptr];
+                    const pivot_eq = eq_classes[offset];
+                    var i: usize = 1;
+                    while (offset + i != eq_classes.len) : (i += 1) {
+                        const cmp_eq = eq_classes[offset + i];
+                        if (pivot_eq.group != cmp_eq.group) break;
+                        const cmp_state = self.states.items[cmp_eq.state];
+                        const gop_get = try eq_structs.transitions_cache.getOrPut(self.allocator, cmp_eq.state);
+                        var cmp_transition: []u32 = undefined;
+                        if (gop_get.found_existing) {
+                            cmp_transition = gop_get.value_ptr.*;
+                        } else {
+                            cmp_transition = try self.allocator.alloc(u32, dt_partitions.len);
+                            for (dt_partitions, 0..) |dtp, dt_i| {
+                                switch (dtp) {
+                                    .none => unreachable,
+                                    .unicode, .char => |wc| {
+                                        cmp_transition[dt_i] = cmp_state.to_state(wc);
+                                    },
+                                    .range => |r| {
+                                        const trlist = try cmp_state.to_states(self.allocator, r);
+                                        defer self.allocator.free(trlist);
+                                        std.debug.assert(trlist.len == 1);
+                                        cmp_transition[dt_i] = trlist[0].to;
+                                    },
+                                }
+                            }
+                            gop_get.value_ptr.* = cmp_transition;
+                        }
+                        if (!eq_structs.cmp_transitions(pivot_eq.state, cmp_transition)) {
+                            for (group_ptr + 1..group_i) |ci| {
+                                const other_eq = eq_classes[eq_structs.first_i_arr.items[ci]];
+                                std.debug.assert(other_eq.group == ci);
+                                if (other_eq.accept != pivot_eq.accept) continue;
+                                if (eq_structs.cmp_transitions(other_eq.state, cmp_transition)) {
+                                    eq_classes[offset + i].group = other_eq.group;
+                                    try eq_structs.state_to_group.put(self.allocator, cmp_eq.state, other_eq.group);
+                                    break;
+                                }
+                            } else { //Append new equivalence class group if it doesn't exist yet.
+                                eq_classes[offset + i].group = group_i;
+                                try eq_structs.state_to_group.put(self.allocator, cmp_eq.state, group_i);
+                                group_i += 1;
+                                try eq_structs.first_i_arr.append(self.allocator, @intCast(offset + i));
+                            }
+                            has_changed = true;
+                        }
+                    }
+                }
+            }
+        }
+        std.sort.block(EquivalenceClass, eq_classes, {}, EquivalenceClass.highest_state_sort);
+        for (eq_classes) |eqc| std.debug.print("{any}\n", .{eqc});
+        var ring_buf_q_hm: std.AutoHashMapUnmanaged(u32, RingBuffer(u32)) = .{};
+        defer {
+            var vit = ring_buf_q_hm.valueIterator();
+            while (vit.next()) |v|
+                v.deinit(self.allocator);
+            ring_buf_q_hm.deinit(self.allocator);
+        }
+        for (eq_classes) |eqc| { // Makes the highest states merge first.
+            const gop = try ring_buf_q_hm.getOrPut(self.allocator, eqc.group);
+            if (!gop.found_existing) gop.value_ptr.* = try RingBuffer(u32).init(self.allocator);
+            try gop.value_ptr.tail_push(self.allocator, eqc.state);
+        }
+        var ring_buf_pq: RingBufferPQ = RingBufferPQ.init(self.allocator, {});
+        defer ring_buf_pq.deinit();
+        var it = ring_buf_q_hm.valueIterator();
+        while (it.next()) |v|
+            if (v.len() != 1) try ring_buf_pq.add(v.*);
+        var merges: u32 = 0;
+        while (ring_buf_pq.count() != 0) {
+            var this_buf = ring_buf_pq.remove();
+            if (this_buf.len() != 1) {
+                const highest = this_buf.head_pop_non_empty();
+                try self.merge_states(this_buf.buffer[this_buf.head], highest, merged_states[0 .. merged_states.len - merges]);
+                merges += 1;
+                try ring_buf_pq.add(this_buf);
+            }
+        }
+        try self._finish_dfa_minimization(&ssm);
+    }
+    pub fn hopcroft_algorithm2(self: *RegexFSM) !void {
+        var ssm = self.substate_machines.pop();
+        std.debug.assert(ssm.accept == .DFA);
+        errdefer ssm.deinit(self.allocator);
+        const merged_states = try self.get_reachable_states(.DFA, &.{ RegexState.ErrorState, ssm.init });
+        defer self.allocator.free(merged_states);
+        const dt_partitions = try self.get_partitions(merged_states);
+        defer self.allocator.free(dt_partitions);
+        var eq_classes = try self.allocator.alloc(EquivalenceClass, merged_states.len);
+        defer self.allocator.free(eq_classes);
+        for (merged_states, 0..) |state, i| {
+            var ec: EquivalenceClass = undefined;
+            ec.state = state;
+            ec.group = @as(u32, @intFromBool(self.states.items[state].accept));
+            ec.accept = self.states.items[state].accept;
+            eq_classes[i] = ec;
+        }
+        try self._finish_dfa_minimization(&ssm);
+    }
+    const RingBufferPQ = std.PriorityQueue(RingBuffer(u32), void, struct {
+        fn f(_: void, a: RingBuffer(u32), b: RingBuffer(u32)) std.math.Order {
+            return std.math.order(b.buffer[b.head], a.buffer[a.head]);
+        }
+    }.f);
+    const EQStructs = struct {
+        first_i_arr: std.ArrayListUnmanaged(usize),
+        state_to_group: std.AutoHashMapUnmanaged(u32, u32),
+        ///Only get states from first_i_arr.
+        transitions_cache: std.AutoArrayHashMapUnmanaged(u32, []u32),
+        fn init(rfsm: *const RegexFSM, eq_classes: []EquivalenceClass, dt_partitions: []const DataType, group_i: u32) !EQStructs {
+            var self: EQStructs = undefined;
+            self.first_i_arr = .{};
+            errdefer self.first_i_arr.deinit(rfsm.allocator);
+            try self.first_i_arr.append(rfsm.allocator, 0);
+            try self.update_first_i_arr(rfsm.allocator, eq_classes, group_i);
+            self.state_to_group = .{};
+            errdefer self.state_to_group.deinit(rfsm.allocator);
+            for (eq_classes) |eqc|
+                try self.state_to_group.put(rfsm.allocator, eqc.state, eqc.group);
+            self.transitions_cache = .{};
+            for (self.first_i_arr.items) |i| {
+                const state = eq_classes[i].state;
+                const this_state = rfsm.states.items[state];
+                const state_transition = try rfsm.allocator.alloc(u32, dt_partitions.len);
+                errdefer rfsm.allocator.free(state_transition);
+                for (dt_partitions, 0..) |dtp, dt_i| {
+                    switch (dtp) {
+                        .none => unreachable,
+                        .unicode, .char => |wc| {
+                            state_transition[dt_i] = this_state.to_state(wc);
+                        },
+                        .range => |r| {
+                            const trlist = try this_state.to_states(rfsm.allocator, r);
+                            defer rfsm.allocator.free(trlist);
+                            std.debug.assert(trlist.len == 1);
+                            state_transition[dt_i] = trlist[0].to;
+                        },
+                    }
+                }
+                try self.transitions_cache.put(rfsm.allocator, state, state_transition);
+            }
+            return self;
+        }
+        fn cmp_transitions(self: EQStructs, cmp_state: u32, other_transition: []const u32) bool {
+            const cmp_transition = self.transitions_cache.get(cmp_state).?;
+            for (cmp_transition, other_transition) |c, o|
+                if (self.state_to_group.get(c).? != self.state_to_group.get(o).?) return false;
+            return true;
+        }
+        fn update_first_i_arr(self: *EQStructs, allocator: std.mem.Allocator, eq_classes: []EquivalenceClass, group_i: u32) !void {
+            self.first_i_arr.items.len = 1;
+            std.debug.assert(self.first_i_arr.items[0] == 0);
+            std.sort.block(EquivalenceClass, eq_classes, {}, EquivalenceClass.group_then_state_sort);
+            next_num: for (1..group_i) |eq_c| { //Binary search the first index of each group > 0.
+                var low_i: usize = 0;
+                var high_i: usize = eq_classes.len - 1;
+                var mid_i = high_i / 2;
+                while (high_i >= low_i) : (mid_i = (high_i + low_i) / 2) {
+                    if (eq_c == eq_classes[mid_i].group and eq_c == eq_classes[mid_i - 1].group + 1) {
+                        try self.first_i_arr.append(allocator, mid_i);
+                        continue :next_num;
+                    }
+                    if (eq_c > eq_classes[mid_i].group) {
+                        low_i = mid_i + 1;
+                    } else {
+                        if (mid_i != 1) {
+                            high_i = mid_i - 1;
+                        } else unreachable; //Should be contiguous
+                    }
+                }
+                unreachable;
+            }
+        }
+        fn deinit(self: *EQStructs, allocator: std.mem.Allocator) void {
+            self.first_i_arr.deinit(allocator);
+            self.state_to_group.deinit(allocator);
+            for (self.transitions_cache.values()) |v| {
+                allocator.free(v);
+            }
+            self.transitions_cache.deinit(allocator);
+        }
+    };
     /// State and transitions are merged into state1_1.
     fn merge_states(self: *RegexFSM, state1_i: u32, state2_i: u32, merged_states: []u32) !void {
-        std.debug.print(ESC("Merging states {} and {}\n", .{ 1, 33 }), .{ state1_i, state2_i });
+        std.debug.print(ESC("Merging state {[1]} into {[0]}\n", .{ 1, 33 }), .{ state1_i, state2_i });
         var delete_state_i: usize = undefined;
         for (merged_states, 0..) |state_i, delete_i| {
             if (state_i == state2_i) {
@@ -1024,7 +1249,7 @@ test "RegexState" {
     try rfsm.nfa_to_dfa();
     std.debug.print(ESC("Sub state machines: {any}\n", .{1}), .{rfsm.substate_machines.items});
     for (rfsm.states.items) |state| std.debug.print("{}\n", .{state});
-    try rfsm.myhill_nerode();
+    try rfsm.hopcroft_algorithm();
     std.debug.print(ESC("Sub state machines: {any}\n", .{1}), .{rfsm.substate_machines.items});
     for (rfsm.states.items) |state| std.debug.print("{}\n", .{state});
     //var rsctx: RegexStateContext = .{ .array = rfsm.states.items };
