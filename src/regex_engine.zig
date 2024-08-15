@@ -2,13 +2,9 @@ const std = @import("std");
 const regex_fsm = @import("regex_fsm.zig");
 const RegexFSM = regex_fsm.RegexFSM;
 const CharacterSet = regex_fsm.CharacterSet;
-const Range = @import("range.zig").Range;
-const DataTypePartitionList = @import("DataTypePartitionList.zig");
-test {
-    _ = regex_fsm;
-    _ = @import("sorted_list.zig");
-    _ = Range;
-}
+const logger = @import("logger.zig");
+const ESC = logger.ESC;
+const os_log_debug = logger.os_log_debug;
 const TokenTag = union(enum) {
     char: u8,
     unicode: u16,
@@ -82,7 +78,7 @@ pub const RegexLexer = struct {
                         ')' => {
                             try token_array.append(.{ .tt = .@")", .begin = i, .end = i });
                             if (p_depth == 0) {
-                                std.debug.print(ESC("Unequal number of unescaped '(' and ')' tokens. Too many ')'.\n", .{ 1, 31 }), .{});
+                                std.log.err("Unequal number of unescaped '(' and ')' tokens. Too many ')'.\n", .{});
                                 return error.LexerError;
                             }
                             p_depth -= 1;
@@ -115,7 +111,7 @@ pub const RegexLexer = struct {
                         ']' => {
                             if (i == set_begin_i) {
                                 highlight_error(regex_str, set_begin_i - 1, i);
-                                std.debug.print(ESC("Empty set is disallowed (all states would point to the 0 error state)\n", .{ 1, 31 }), .{});
+                                std.log.err("Empty set is disallowed (all states would point to the 0 error state)\n", .{});
                                 return error.LexerError;
                             }
                             try token_array.append(.{ .tt = .@"]", .begin = i, .end = i });
@@ -134,7 +130,7 @@ pub const RegexLexer = struct {
                         'n' => try token_array.append(.{ .tt = .{ .char = '\n' }, .begin = i - 1, .end = i }),
                         'x' => {
                             if (i >= regex_str.len - 2) {
-                                std.debug.print(ESC("\\x requires 2 hexadecimal characters to parse\n", .{ 1, 31 }), .{});
+                                std.log.err("\\x requires 2 hexadecimal characters to parse\n", .{});
                                 return error.LexerError;
                             }
                             const num = try std.fmt.parseInt(u8, regex_str[i + 1 .. i + 3], 16);
@@ -143,7 +139,7 @@ pub const RegexLexer = struct {
                         },
                         'u' => {
                             if (i >= regex_str.len - 4) {
-                                std.debug.print(ESC("\\u requires 4 hexadecimal characters to parse\n", .{ 1, 31 }), .{});
+                                std.log.err("\\u requires 4 hexadecimal characters to parse\n", .{});
                                 return error.LexerError;
                             }
                             const num = try std.fmt.parseInt(u16, regex_str[i + 1 .. i + 5], 16);
@@ -160,11 +156,11 @@ pub const RegexLexer = struct {
                         '-' => if (has_minus) {
                             try token_array.append(.{ .tt = .{ .char = '-' }, .begin = i - 1, .end = i });
                         } else {
-                            std.debug.print(ESC("'-' is not a valid character to escape\n", .{ 1, 31 }), .{});
+                            std.log.err("'-' is not a valid character to escape\n", .{});
                             return error.LexerError;
                         },
                         else => |ch| {
-                            std.debug.print(ESC("'{c}' is not a valid character to escape\n", .{ 1, 31 }), .{ch});
+                            std.log.err("'{c}' is not a valid character to escape\n", .{ch});
                             return error.LexerError;
                         },
                     }
@@ -175,7 +171,7 @@ pub const RegexLexer = struct {
                         '0'...'9' => num_str.len += 1,
                         '}' => {
                             if (num_str.len == 0) {
-                                std.debug.print(ESC("Numbers are required inside '{{' and '}}'\n", .{ 1, 31 }), .{});
+                                std.log.err("Numbers are required inside '{{' and '}}'\n", .{});
                                 return error.LexerError;
                             }
                             const num = try std.fmt.parseInt(u32, num_str.*, 10);
@@ -192,7 +188,7 @@ pub const RegexLexer = struct {
                             }
                         },
                         else => {
-                            std.debug.print(ESC("Numbers are required inside '{{' and '}}'\n", .{ 1, 31 }), .{});
+                            std.log.err("Numbers are required inside '{{' and '}}'\n", .{});
                             return error.LexerError;
                         },
                     }
@@ -208,7 +204,7 @@ pub const RegexLexer = struct {
                             read_state = .begin;
                         },
                         else => {
-                            std.debug.print(ESC("Numbers are required inside '{{' and '}}'\n", .{ 1, 31 }), .{});
+                            std.log.err("Numbers are required inside '{{' and '}}'\n", .{});
                             return error.LexerError;
                         },
                     }
@@ -221,13 +217,13 @@ pub const RegexLexer = struct {
                                 const num = try std.fmt.parseInt(u32, num_str.*, 10);
                                 try token_array.append(.{ .tt = .{ .quant_lte = num }, .begin = @intCast(i - num_str.len - 1), .end = i });
                             } else {
-                                std.debug.print(ESC("Numbers are required inside '{{' and '}}'\n", .{ 1, 31 }), .{});
+                                std.log.err("Numbers are required inside '{{' and '}}'\n", .{});
                                 return error.LexerError;
                             }
                             read_state = .begin;
                         },
                         else => {
-                            std.debug.print(ESC("Numbers are required inside '{{' and '}}'\n", .{ 1, 31 }), .{});
+                            std.log.err("Numbers are required inside '{{' and '}}'\n", .{});
                             return error.LexerError;
                         },
                     }
@@ -235,14 +231,14 @@ pub const RegexLexer = struct {
             }
         }
         if (p_depth != 0) {
-            std.debug.print(ESC("Unequal number of unescaped '(' and ')'. Too many '('.\n", .{ 1, 31 }), .{});
+            std.log.err("Unequal number of unescaped '(' and ')'. Too many '('.\n", .{});
             return error.LexerError;
         }
         try token_array.append(.{ .tt = .eof, .begin = i, .end = i });
         switch (read_state) {
             .begin => return .{ .token_array = token_array, .str = regex_str },
             else => {
-                std.debug.print(ESC("Unexpected end of string\n", .{ 1, 31 }), .{});
+                std.log.err("Unexpected end of string\n", .{});
                 return error.LexerError;
             },
         }
@@ -390,9 +386,9 @@ fn BNFParser(
             pub fn print(self: SymbolNode, depth: u32) void {
                 if (self == .nt) {
                     const rule_range = RuleRanges[@intFromEnum(self.nt.nt)];
-                    std.debug.print(ESC("{[sp]:-<[w]}-{[r]}\n", .{1}), .{ .sp = depth, .w = depth, .r = Rules[rule_range.start + self.nt.offset] });
+                    os_log_debug("{[sp]:-<[w]}-{[r]}\n", .{ .sp = depth, .w = depth, .r = Rules[rule_range.start + self.nt.offset] }, .{1});
                 } else {
-                    std.debug.print(ESC("{[sp]:-<[w]}-{[p]any}\n", .{ 1, 30 }), .{ .sp = depth, .p = self.t, .w = depth });
+                    os_log_debug("{[sp]:-<[w]}-{[p]any}\n", .{ .sp = depth, .p = self.t, .w = depth }, .{ 1, 30 });
                 }
             }
             ///Construct nodes to ConstructFn in post-order traversal
@@ -562,16 +558,22 @@ const RegexBNF = BNFParser(TokenTag, Token, "tt", NonTermEnum, RegexEngine, &[_]
     .{ .bnf = "_Error3 ::= '-'                              ", .func = .{ .reject = set_non_escaped_minus } },
 }, 10000);
 fn highlight_error(str: []const u8, begin_i: usize, end_i: usize) void {
-    std.debug.print("{s}\x1b[30;47;1m{s}\x1b[0m{s}\n", .{
+    const in_os = @import("builtin").os.tag != .freestanding;
+    const ESCBEGIN = if (in_os) "\x1b[30;47;1m" else "";
+    const ESCEND = if (in_os) "\x1b[0m" else "";
+    @field(std.log, if (in_os) "debug" else "err")("{s}" ++ ESCBEGIN ++ "{s}" ++ ESCEND ++ "{s}\n", .{
         str[0..begin_i],
         str[begin_i .. end_i + 1],
         str[end_i + 1 ..],
     });
+    if (!in_os) {
+        std.log.debug("{[0]c: >[1]}{[0]c: >[2]} <- (Error here)\n", .{ '^', begin_i + 1, end_i - begin_i });
+    }
 }
 pub fn stray_quantifier(allocator: std.mem.Allocator, q: []const Token) anyerror![]const u8 {
     return std.fmt.allocPrint(
         allocator,
-        "At string index[{}..{}], stray unescaped quantifier found.\nNo subexpression (character, unicode, character set, set, or group expression) used before this quantifier.\n",
+        "At string index[{}..{}], stray unescaped quantifier found.\nNo subexpression (character, unicode, character set, set, or group) used before this quantifier.\n",
         .{ q[0].begin, q[q.len - 1].end },
     );
 }
@@ -581,17 +583,17 @@ pub fn stray_alternation(allocator: std.mem.Allocator, a: []const Token) anyerro
 pub fn set_non_escaped_minus(allocator: std.mem.Allocator, m: []const Token) anyerror![]const u8 {
     return std.fmt.allocPrint(allocator, "At string index[{}..{}], stray unescaped '-' found\n", .{ m[0].begin, m[0].end });
 }
-const RegexEngine = struct {
+pub const RegexEngine = struct {
     allocator: std.mem.Allocator,
     str: []const u8,
     fsm: RegexFSM,
     token_stack: std.ArrayListUnmanaged(Token) = .{},
-    fn init(allocator: std.mem.Allocator, str: []const u8) !RegexEngine {
+    pub fn init(allocator: std.mem.Allocator, str: []const u8) !RegexEngine {
         return .{ .allocator = allocator, .str = str, .fsm = try RegexFSM.init(allocator) };
     }
-    fn construct(self: *RegexEngine, node: RegexBNF.SymbolNode) !void {
+    pub fn construct(self: *RegexEngine, node: RegexBNF.SymbolNode) !void {
         //node.print(0);
-        //std.debug.print(ESC("Token stack: {any}\n", .{30}), .{self.token_stack.items});
+        //os_log_debug("Token stack: {any}\n", .{self.token_stack.items}, .{30});
         if (node == .nt) {
             const rule_range = RegexBNF.RuleRanges[@intFromEnum(node.nt.nt)];
             const rule_call_fn = RegexBNF.RuleCallFn[rule_range.start + node.nt.offset];
@@ -630,7 +632,7 @@ const RegexEngine = struct {
         std.debug.assert(ch_min_token.tt == .char);
         if (ch_min_token.tt.char > ch_max_token.tt.char) {
             highlight_error(self.str, ch_min_token.begin, ch_max_token.end);
-            std.debug.print(ESC("At string index[{}..{}], range values are backwards\n", .{ 1, 31 }), .{ ch_min_token.begin, ch_max_token.end });
+            std.log.err("At string index[{}..{}], range values are backwards\n", .{ ch_min_token.begin, ch_max_token.end });
             return error.Reversed;
         }
         try self.fsm.add_set_datatype(.{ .range = .{ .min = ch_min_token.tt.char, .max = ch_max_token.tt.char } });
@@ -643,7 +645,7 @@ const RegexEngine = struct {
         std.debug.assert(un_min_token.tt == .unicode);
         if (un_min_token.tt.unicode > un_max_token.tt.unicode) {
             highlight_error(self.str, un_min_token.begin, un_max_token.end);
-            std.debug.print(ESC("At string index[{}..{}], range values are backwards\n", .{ 1, 31 }), .{ un_min_token.begin, un_max_token.end });
+            std.log.err("At string index[{}..{}], range values are backwards\n", .{ un_min_token.begin, un_max_token.end });
             return error.Reversed;
         }
         try self.fsm.add_set_datatype(.{ .range = .{ .min = un_min_token.tt.unicode, .max = un_max_token.tt.unicode } });
@@ -682,7 +684,7 @@ const RegexEngine = struct {
         std.debug.assert(gte_token.tt == .quant_gte);
         if (gte_token.tt.quant_gte > lte_token.tt.quant_lte) {
             highlight_error(self.str, gte_token.begin, lte_token.end);
-            std.debug.print(ESC("At string index[{}..{}], range values are backwards\n", .{ 1, 31 }), .{ gte_token.begin, lte_token.end });
+            std.log.err("At string index[{}..{}], range values are backwards\n", .{ gte_token.begin, lte_token.end });
             return error.Reversed;
         }
         try self.fsm.repetition_between(gte_token.tt.quant_gte, lte_token.tt.quant_lte);
@@ -713,23 +715,23 @@ const RegexEngine = struct {
         std.debug.assert(self.token_stack.pop().tt == .@"(");
     }
     fn finalize(self: *RegexEngine) !void {
-        std.debug.print(ESC("Sub state machines: {any}\n", .{1}), .{self.fsm.substate_machines.items});
-        for (self.fsm.states.items) |state| std.debug.print("{}\n", .{state});
+        os_log_debug("Sub state machines: {any}\n", .{self.fsm.substate_machines.items}, .{1});
+        for (self.fsm.states.items) |state| os_log_debug("{}\n", .{state}, .{});
         try self.fsm.nfa_to_dfa();
-        std.debug.print(ESC("Sub state machines: {any}\n", .{1}), .{self.fsm.substate_machines.items});
-        for (self.fsm.states.items) |state| std.debug.print("{}\n", .{state});
+        os_log_debug("Sub state machines: {any}\n", .{self.fsm.substate_machines.items}, .{1});
+        for (self.fsm.states.items) |state| os_log_debug("{}\n", .{state}, .{});
         try self.fsm.hopcroft_algorithm();
-        std.debug.print(ESC("Sub state machines: {any}\n", .{1}), .{self.fsm.substate_machines.items});
-        for (self.fsm.states.items) |state| std.debug.print("{}\n", .{state});
+        os_log_debug("Sub state machines: {any}\n", .{self.fsm.substate_machines.items}, .{1});
+        for (self.fsm.states.items) |state| os_log_debug("{}\n", .{state}, .{});
     }
-    fn deinit(self: *RegexEngine) void {
+    pub fn deinit(self: *RegexEngine) void {
         self.token_stack.deinit(self.allocator);
         self.fsm.deinit();
     }
 };
 /// Returns root node of the syntax tree.
-fn create_parse_tree(allocator: std.mem.Allocator, lexer: RegexLexer) !RegexBNF.SymbolNode {
-    //std.debug.print("{any}\n", .{lexer.token_array.items});
+pub fn create_parse_tree(allocator: std.mem.Allocator, lexer: RegexLexer) !RegexBNF.SymbolNode {
+    //os_log_debug("{any}\n", .{lexer.token_array.items});
     //.r is the offset of the rules of a symbol. .i is the offset of the symbol array within a rule.
     const RuleCursor = struct {
         rule: u16 = 0,
@@ -752,18 +754,18 @@ fn create_parse_tree(allocator: std.mem.Allocator, lexer: RegexLexer) !RegexBNF.
     cursors.appendAssumeCapacity(.{ .node = &root });
     var lexer_i: u32 = 0;
     new_cursor: while (lexer_i < lexer.token_array.items.len) {
-        //std.debug.print("{any} ({})\n", .{ cursors.items, cursors.items.len });
+        //os_log_debug("{any} ({})\n", .{ cursors.items, cursors.items.len });
         var cursor_now: *RuleCursor = &cursors.items[cursors.items.len - 1];
         const rule_range = RegexBNF.RuleRanges[@intFromEnum(cursor_now.node.nt.nt)];
         new_rule: while (cursor_now.rule < rule_range.count) : (cursor_now.rule += 1) {
             const rule_now = RegexBNF.Rules[rule_range.start + cursor_now.rule];
-            //std.debug.print(ESC("Reading rule[{}]: {}\n", .{1}), .{ cursor_now.rule, rule_now });
+            //os_log_debug("Reading rule[{}]: {}\n", .{ cursor_now.rule, rule_now } ,.{1});
             while (cursor_now.offset < rule_now.sym.len) : (cursor_now.offset += 1) {
                 const symbol_now = rule_now.sym[cursor_now.offset];
                 const token_compare = lexer.token_array.items[lexer_i];
-                //std.debug.print(ESC("{} =? {} [{}]? ", .{ 1, 35 }), .{ symbol_now, term_compare, lexer_i });
+                //os_log_debug("{} =? {} [{}]? ", .{ symbol_now, term_compare, lexer_i } ,.{ 1, 35 });
                 if (symbol_now == .nt) { //Search through a sub nonterminal's rules recursively.
-                    //std.debug.print(ESC("Adding nonterminal {} to stack\n", .{ 1, 33 }), .{symbol_now});
+                    //os_log_debug("Adding nonterminal {} to stack\n", .{symbol_now} ,.{ 1, 33 });
                     const symbol_nt = try RegexBNF.SymbolNode.init_nonterm(allocator, symbol_now.nt, 0);
                     errdefer {
                         _ = symbol_nt.deinit(allocator);
@@ -774,11 +776,11 @@ fn create_parse_tree(allocator: std.mem.Allocator, lexer: RegexLexer) !RegexBNF.
                     continue :new_cursor;
                 } else { //Check if terminal symbol is equal and push it.
                     if (@intFromEnum(token_compare.tt) == symbol_now.t) {
-                        //std.debug.print(ESC("Equal\n", .{ 1, 32 }), .{});
+                        //os_log_debug(ESC("Equal\n", .{ 1, 32 }), .{});
                         cursor_now.node.nt.push(try RegexBNF.SymbolNode.init_term(allocator, token_compare));
                         lexer_i += 1;
                     } else {
-                        //std.debug.print(ESC("Unequal\n", .{ 1, 31 }), .{});
+                        //std.log.err("Unequal\n", .{});
                         if (cursor_now.rule != rule_range.count - 1) {
                             const children = try cursor_now.node.nt.extract(allocator);
                             defer allocator.free(children);
@@ -812,10 +814,10 @@ fn create_parse_tree(allocator: std.mem.Allocator, lexer: RegexLexer) !RegexBNF.
                             cursor_now.offset = new_offset;
                             continue :new_rule;
                         }
-                        //std.debug.print(ESC("All rules are unequal\n", .{ 1, 31 }), .{});
+                        //std.log.err("All rules are unequal\n", .{});
                         _ = cursors.pop();
                         cursor_now = if (cursors.items.len != 0) &cursors.items[cursors.items.len - 1] else {
-                            //std.debug.print(ESC("This is not a Regex string\n", .{ 1, 31 }), .{});
+                            //std.log.err("This is not a Regex string\n", .{});
                             return error.ParsingFailed;
                         };
                         const last_rule_node = cursor_now.node.nt.pop(); //Revert tokenizer_i if all rules are unequal.
@@ -828,7 +830,7 @@ fn create_parse_tree(allocator: std.mem.Allocator, lexer: RegexLexer) !RegexBNF.
             }
             const expected_rule = RegexBNF.Rules[rule_range.start + cursor_now.node.nt.offset];
             if (!rule_now.eq(expected_rule)) { //Change rule if the while loop skipped checking the last rule.
-                //std.debug.print(ESC("Rule {}\nmismatches symbol node\nRule {}\n", .{ 1, 31 }), .{ rule_now, expected_rule });
+                //std.log.err("Rule {}\nmismatches symbol node\nRule {}\n", .{ rule_now, expected_rule });
                 const children = try cursor_now.node.nt.extract(allocator);
                 defer allocator.free(children);
                 errdefer {
@@ -872,22 +874,22 @@ fn create_parse_tree(allocator: std.mem.Allocator, lexer: RegexLexer) !RegexBNF.
                     const begin_token = tokens_to_print.items[0];
                     const end_token = tokens_to_print.items[tokens_to_print.items.len - 1];
                     highlight_error(lexer.str, begin_token.begin, end_token.end);
-                    std.debug.print(ESC("{s}\n", .{ 1, 31 }), .{error_string});
-                    return error.MatchedRejectedRule;
+                    std.log.err("{s}\n", .{error_string});
+                    return error.LexerMatchedRejectedRule;
                 }
-                //std.debug.print(ESC("Approved rule {}\n", .{ 1, 32 }), .{rule_now});
+                //os_log_debug("Approved rule {}\n", .{rule_now} ,.{ 1, 32 });
                 _ = cursors.pop();
                 if (cursors.items.len != 0) cursors.items[cursors.items.len - 1].offset += 1 else {
-                    //std.debug.print(ESC("This is a Regex string\n", .{ 1, 32 }), .{});
+                    //os_log_debug(ESC("This is a Regex string\n", .{ 1, 32 }), .{});
                     return root;
                 }
             }
             continue :new_cursor;
         }
-        //std.debug.print(ESC("All rules are unequal\n", .{ 1, 31 }), .{});
+        //std.log.err("All rules are unequal\n", .{});
         _ = cursors.pop();
         cursor_now = if (cursors.items.len != 0) &cursors.items[cursors.items.len - 1] else {
-            //std.debug.print(ESC("This is not a Regex string\n", .{ 1, 31 }), .{});
+            //std.log.err("This is not a Regex string\n", .{});
             return error.ParsingFailed;
         };
         const last_rule_node = cursor_now.node.nt.pop(); //Revert tokenizer_i if all rules are unequal.
@@ -896,38 +898,4 @@ fn create_parse_tree(allocator: std.mem.Allocator, lexer: RegexLexer) !RegexBNF.
         cursor_now.rule += 1;
     }
     return root;
-}
-pub fn main_loop(allocator: std.mem.Allocator) void {
-    while (true) {
-        (err_label: {
-            std.debug.print("Type regular expression here to convert to minimized DFA (Ctrl+C to exit): ", .{});
-            const regex_str = std.io.getStdIn().reader().readUntilDelimiterAlloc(allocator, '\n', 4096) catch |e| break :err_label e;
-            defer allocator.free(regex_str);
-            const regex_str_no_r = regex_str[0 .. regex_str.len - 1];
-            var lexer = RegexLexer.init(allocator, regex_str_no_r) catch |e| break :err_label e;
-            defer lexer.deinit();
-            const parse_tree = create_parse_tree(allocator, lexer) catch |e| break :err_label e;
-            defer _ = parse_tree.deinit(allocator);
-            var rc: RegexEngine = RegexEngine.init(allocator, lexer.str) catch |e| break :err_label e;
-            defer rc.deinit();
-            parse_tree.construct(&rc, RegexEngine.construct) catch |e| break :err_label e;
-        }) catch {
-            std.debug.print("DFA Compilation failure...\n", .{});
-            //return;
-        };
-    }
-}
-pub fn main() !void {
-    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .{};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-    main_loop(allocator);
-}
-pub fn ESC(comptime str: []const u8, comptime codes: anytype) []const u8 {
-    if (codes.len == 0) @compileError("At least one code is required");
-    var return_this: []const u8 = "\x1b[";
-    for (codes, 0..) |code, i|
-        return_this = return_this ++ std.fmt.comptimePrint("{}{c}", .{ code, if (i != codes.len - 1) ';' else 'm' });
-    return_this = return_this ++ str ++ "\x1b[0m";
-    return return_this;
 }

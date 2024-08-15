@@ -1,5 +1,6 @@
 const std = @import("std");
-const ESC = @import("main.zig").ESC;
+const ESC = @import("logger.zig").ESC;
+const os_log_debug = @import("logger.zig").os_log_debug;
 const SortedList = @import("sorted_list.zig").SortedList;
 const SortedIntList = @import("sorted_list.zig").SortedIntList;
 const RingBuffer = @import("ring_buffer.zig").RingBuffer;
@@ -714,7 +715,7 @@ pub const RegexFSM = struct {
             const this_ss_sp = powerset_hm.get_properties(self, this_ss);
             if (this_ss_sp.accept) try merged_accept_states.append(self.allocator, this_ss_sp.id - shift_ssm); //Shift by size of NFA
             try self.states.append(self.allocator, .{ .id = this_ss_sp.id, .accept = this_ss_sp.accept, .transitions = try self.allocator.alloc(Transition, 0) });
-            std.debug.print(ESC("{any} subset becomes .id {} ({s})\n", .{ 1, 30 }), .{ this_ss, this_ss_sp.id, if (this_ss_sp.accept) "accepted" else "non-accepted" });
+            os_log_debug("{any} subset becomes .id {} ({s})\n", .{ this_ss, this_ss_sp.id, if (this_ss_sp.accept) "accepted" else "non-accepted" }, .{ 1, 30 });
             const dt_partitions = try self.get_partitions(this_ss);
             defer self.allocator.free(dt_partitions);
             for (dt_partitions) |dt_partition| {
@@ -750,7 +751,7 @@ pub const RegexFSM = struct {
         ssm.accept = .{ .DFA = try merged_accept_states.toOwnedSlice(self.allocator) };
         self.substate_machines.appendAssumeCapacity(ssm);
         try self.shift_left(true, dfa_init, shift_ssm);
-        std.debug.print(ESC("Replaced NFA states with subset DFA states\n", .{ 32, 1 }), .{});
+        os_log_debug("Replaced NFA states with subset DFA states\n", .{}, .{ 32, 1 });
     }
     const MergeGroup = struct {
         P: u32,
@@ -865,12 +866,12 @@ pub const RegexFSM = struct {
         var just_deleted: SortedIntList(u32, .lt) = .{};
         defer just_deleted.deinit(self.allocator);
         while (pq_pairs.removeOrNull()) |pair| {
-            std.debug.print(ESC("Possible merge {} and {}\n", .{30}), .{ pair.P, pair.Q });
+            os_log_debug("Possible merge {} and {}\n", .{ pair.P, pair.Q }, .{30});
             if (!try just_deleted.insert_unique(self.allocator, pair.Q)) continue; //Don't merge Q state number twice.
             try self.merge_states(pair.P, pair.Q, merged_states[0 .. merged_states.len - just_deleted.list.items.len + 1]);
         }
         try self._finish_dfa_minimization(&ssm);
-        std.debug.print(ESC("DFA minimization myhill_narode complete\n", .{ 1, 32 }), .{});
+        os_log_debug("DFA minimization myhill_narode complete\n", .{}, .{ 1, 32 });
     }
     const EquivalenceClass = struct {
         group: u32,
@@ -1004,7 +1005,7 @@ pub const RegexFSM = struct {
             }
         }
         std.sort.block(EquivalenceClass, eq_classes, {}, EquivalenceClass.highest_state_sort);
-        for (eq_classes) |eqc| std.debug.print("{any}\n", .{eqc});
+        for (eq_classes) |eqc| os_log_debug("{any}\n", .{eqc}, .{});
         var ring_buf_q_hm: std.AutoHashMapUnmanaged(u32, RingBuffer(u32)) = .{};
         defer {
             var vit = ring_buf_q_hm.valueIterator();
@@ -1033,11 +1034,11 @@ pub const RegexFSM = struct {
             }
         }
         try self._finish_dfa_minimization(&ssm);
-        std.debug.print(ESC("DFA minimization hopcroft_algorithm complete\n", .{ 1, 32 }), .{});
+        os_log_debug("DFA minimization hopcroft_algorithm complete\n", .{}, .{ 1, 32 });
     }
     /// State and transitions are merged into state1_1.
     fn merge_states(self: *RegexFSM, state1_i: u32, state2_i: u32, merged_states: []u32) !void {
-        std.debug.print(ESC("Merging state {[1]} into {[0]}\n", .{ 1, 33 }), .{ state1_i, state2_i });
+        os_log_debug("Merging state {[1]} into {[0]}\n", .{ state1_i, state2_i }, .{ 1, 33 });
         var delete_state_i: usize = undefined;
         for (merged_states, 0..) |state_i, delete_i| {
             if (state_i == state2_i) {
@@ -1240,16 +1241,16 @@ test "RegexState" {
     try rfsm.add_datatype(.{ .char = 'l' });
     try rfsm.alternation();
     try rfsm.concatenation();
-    std.debug.print(ESC("Sub state machines: {any}\n", .{1}), .{rfsm.substate_machines.items});
-    for (rfsm.states.items) |state| std.debug.print("{}\n", .{state});
+    os_log_debug("Sub state machines: {any}\n", .{rfsm.substate_machines.items}, .{1});
+    for (rfsm.states.items) |state| os_log_debug("{}\n", .{state}, .{});
     try rfsm.nfa_to_dfa();
-    std.debug.print(ESC("Sub state machines: {any}\n", .{1}), .{rfsm.substate_machines.items});
-    for (rfsm.states.items) |state| std.debug.print("{}\n", .{state});
+    os_log_debug("Sub state machines: {any}\n", .{rfsm.substate_machines.items}, .{1});
+    for (rfsm.states.items) |state| os_log_debug("{}\n", .{state}, .{});
     try rfsm.hopcroft_algorithm();
-    std.debug.print(ESC("Sub state machines: {any}\n", .{1}), .{rfsm.substate_machines.items});
-    for (rfsm.states.items) |state| std.debug.print("{}\n", .{state});
+    os_log_debug("Sub state machines: {any}\n", .{rfsm.substate_machines.items}, .{1});
+    for (rfsm.states.items) |state| os_log_debug("{}\n", .{state}, .{});
     //var rsctx: RegexStateContext = .{ .array = rfsm.states.items };
-    //std.debug.print("States: {any}\nState now: {any}\n", .{
+    //os_log_debug("States: {any}\nState now: {any}\n", .{
     //    rfsm.states.items,
     //    input_string(1, &rsctx, "B"),
     //});
