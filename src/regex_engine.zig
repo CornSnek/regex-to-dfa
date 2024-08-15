@@ -1,6 +1,8 @@
 const std = @import("std");
 const regex_fsm = @import("regex_fsm.zig");
 const RegexFSM = regex_fsm.RegexFSM;
+const WasmExport = regex_fsm.WasmExport;
+const wasm_jsalloc = @import("wasm_jsalloc.zig");
 const CharacterSet = regex_fsm.CharacterSet;
 const logger = @import("logger.zig");
 const ESC = logger.ESC;
@@ -583,13 +585,20 @@ pub fn stray_alternation(allocator: std.mem.Allocator, a: []const Token) anyerro
 pub fn set_non_escaped_minus(allocator: std.mem.Allocator, m: []const Token) anyerror![]const u8 {
     return std.fmt.allocPrint(allocator, "At string index[{}..{}], stray unescaped '-' found\n", .{ m[0].begin, m[0].end });
 }
+const in_wasm = @import("builtin").os.tag == .freestanding;
 pub const RegexEngine = struct {
     allocator: std.mem.Allocator,
     str: []const u8,
     fsm: RegexFSM,
     token_stack: std.ArrayListUnmanaged(Token) = .{},
+    wasm_export: if (in_wasm) WasmExport else void,
     pub fn init(allocator: std.mem.Allocator, str: []const u8) !RegexEngine {
-        return .{ .allocator = allocator, .str = str, .fsm = try RegexFSM.init(allocator) };
+        return .{
+            .allocator = allocator,
+            .str = str,
+            .fsm = try RegexFSM.init(allocator),
+            .wasm_export = if (in_wasm) .{ .allocator = allocator },
+        };
     }
     pub fn construct(self: *RegexEngine, node: RegexBNF.SymbolNode) !void {
         //node.print(0);
@@ -715,15 +724,39 @@ pub const RegexEngine = struct {
         std.debug.assert(self.token_stack.pop().tt == .@"(");
     }
     fn finalize(self: *RegexEngine) !void {
+        errdefer if (in_wasm) self.wasm_export.deinit();
+        if (in_wasm)
+            try self.fsm.construct_wasm(&self.wasm_export, "nfa");
         os_log_debug("Sub state machines: {any}\n", .{self.fsm.substate_machines.items}, .{1});
         for (self.fsm.states.items) |state| os_log_debug("{}\n", .{state}, .{});
         try self.fsm.nfa_to_dfa();
+        if (in_wasm)
+            try self.fsm.construct_wasm(&self.wasm_export, "dfa");
         os_log_debug("Sub state machines: {any}\n", .{self.fsm.substate_machines.items}, .{1});
         for (self.fsm.states.items) |state| os_log_debug("{}\n", .{state}, .{});
         try self.fsm.hopcroft_algorithm();
+        if (in_wasm)
+            try self.fsm.construct_wasm(&self.wasm_export, "dfa_min");
         os_log_debug("Sub state machines: {any}\n", .{self.fsm.substate_machines.items}, .{1});
         for (self.fsm.states.items) |state| os_log_debug("{}\n", .{state}, .{});
+        if (in_wasm) {
+            const nfa_slice = std.mem.sliceAsBytes(try self.wasm_export.nfa.toOwnedSlice(self.allocator));
+            errdefer self.allocator.free(nfa_slice);
+            const dfa_slice = std.mem.sliceAsBytes(try self.wasm_export.dfa.toOwnedSlice(self.allocator));
+            errdefer self.allocator.free(dfa_slice);
+            const dfa_min_slice = std.mem.sliceAsBytes(try self.wasm_export.dfa_min.toOwnedSlice(self.allocator));
+            errdefer self.allocator.free(dfa_min_slice);
+            try wasm_jsalloc.slice_to_js(nfa_slice);
+            try wasm_jsalloc.slice_to_js(dfa_slice);
+            try wasm_jsalloc.slice_to_js(dfa_min_slice);
+            @memcpy(&StatesStrings, &[_][*c]align(@alignOf(u32)) u8{ nfa_slice.ptr, dfa_slice.ptr, dfa_min_slice.ptr });
+            @memcpy(&StatesStringsLen, &[_]usize{ nfa_slice.len, dfa_slice.len, dfa_min_slice.len });
+            self.wasm_export.deinit();
+        }
     }
+    //Format nfa, dfa, dfa (minimized)
+    pub export var StatesStrings: [3][*c]align(@alignOf(u32)) u8 = .{ 0, 0, 0 };
+    pub export var StatesStringsLen: [3]usize = .{ 0, 0, 0 };
     pub fn deinit(self: *RegexEngine) void {
         self.token_stack.deinit(self.allocator);
         self.fsm.deinit();

@@ -685,6 +685,10 @@ pub const RegexFSM = struct {
         defer dtpl.deinit(self.allocator);
         try dtpl.add(self.allocator, .{ .range = .{ .min = 0, .max = 0xffff } });
         for (self.set_datatypes.items) |dt| try dtpl.delete(self.allocator, dt);
+        if (dtpl.list.items.len == 0) {
+            std.log.err("Empty set is disallowed (all states would point to the 0 error state)\n", .{});
+            return error.EmptySetDisallowed;
+        }
         const init_state_i: u32 = @intCast(self.states.items.len);
         try self.states.ensureUnusedCapacity(self.allocator, 2);
         self.states.appendSliceAssumeCapacity(&.{
@@ -750,7 +754,7 @@ pub const RegexFSM = struct {
         std.sort.block(u32, merged_accept_states.items, {}, index_sort);
         ssm.accept = .{ .DFA = try merged_accept_states.toOwnedSlice(self.allocator) };
         self.substate_machines.appendAssumeCapacity(ssm);
-        try self.shift_left(true, dfa_init, shift_ssm);
+        try self.shift_left(dfa_init, shift_ssm);
         os_log_debug("Replaced NFA states with subset DFA states\n", .{}, .{ 32, 1 });
     }
     const MergeGroup = struct {
@@ -1069,7 +1073,7 @@ pub const RegexFSM = struct {
                 }
             }
         }
-        try self.shift_left(true, state2_i + 1, 1);
+        try self.shift_left(state2_i + 1, 1);
         merged_states[delete_state_i] = merged_states[merged_states.len - 1]; //Update array for future merges (No realloc, update slices.)
         for (merged_states) |*s| {
             if (s.* > state2_i) s.* -= 1;
@@ -1111,21 +1115,19 @@ pub const RegexFSM = struct {
     fn index_sort(_: void, l: u32, r: u32) bool {
         return l < r;
     }
-    fn shift_left(self: *RegexFSM, free_alloc: bool, offset: u32, by: u32) !void {
+    fn shift_left(self: *RegexFSM, offset: u32, by: u32) !void {
         for (offset..self.states.items.len) |i| { //Change .to and .id states for the ones that are shifted.
             for (self.states.items[i].transitions) |*tr| {
                 if (tr.to >= offset) tr.to -= by;
             }
             self.states.items[i].id -= by;
-            if (free_alloc)
-                if (i - by < offset)
-                    self.allocator.free(self.states.items[i - by].transitions);
+            if (i - by < offset)
+                self.allocator.free(self.states.items[i - by].transitions);
             self.states.items[i - by] = self.states.items[i];
         }
-        if (free_alloc)
-            if (by > self.states.items.len - offset) //Between the new states position and below the old states position.
-                for (self.states.items.len - by..offset) |i|
-                    self.allocator.free(self.states.items[i].transitions);
+        if (by > self.states.items.len - offset) //Between the new states position and below the old states position.
+            for (self.states.items.len - by..offset) |i|
+                self.allocator.free(self.states.items[i].transitions);
         try self.states.resize(self.allocator, self.states.items.len - by);
     }
     /// States self.states.items[offset..offset+by] are uninitialized.
@@ -1141,6 +1143,47 @@ pub const RegexFSM = struct {
             self.states.items[i] = undefined;
         }
     }
+    /// Format {this_state, accept, number_transitions, transitions_byte_count, (Transitions) ... }
+    /// (Transitions) are formatted as { tr.to, .none }, { tr.to, .single, wc }, or { tr.to, .range, min, max }
+    pub fn construct_wasm(self: *const RegexFSM, wasm_export: *WasmExport, comptime list_field: []const u8) !void {
+        for (self.states.items) |state| {
+            const start_str = @field(wasm_export, list_field).items.len;
+            try @field(wasm_export, list_field).appendSlice(self.allocator, &.{
+                state.id,
+                @intFromBool(state.accept),
+                @intCast(state.transitions.len),
+                0,
+            });
+            const byte_count_i = @field(wasm_export, list_field).items.len - 1;
+            for (state.transitions) |tr| {
+                switch (tr.dtype) {
+                    .none => {
+                        try @field(wasm_export, list_field).appendSlice(
+                            self.allocator,
+                            &.{ tr.to, @intFromEnum(WasmExport.Transition.none) },
+                        );
+                        @field(wasm_export, list_field).items[byte_count_i] += 2;
+                    },
+                    .unicode, .char => |wc| {
+                        try @field(wasm_export, list_field).appendSlice(
+                            self.allocator,
+                            &.{ tr.to, @intFromEnum(WasmExport.Transition.single), wc },
+                        );
+                        @field(wasm_export, list_field).items[byte_count_i] += 3;
+                    },
+                    .range => |r| {
+                        try @field(wasm_export, list_field).appendSlice(
+                            self.allocator,
+                            &.{ tr.to, @intFromEnum(WasmExport.Transition.range), r.min, r.max },
+                        );
+                        @field(wasm_export, list_field).items[byte_count_i] += 4;
+                    },
+                }
+            }
+            const end_str = @field(wasm_export, list_field).items.len;
+            std.log.debug("{any}\n", .{@field(wasm_export, list_field).items[start_str..end_str]});
+        }
+    }
     pub fn deinit(self: *RegexFSM) void {
         for (self.states.items) |state|
             self.allocator.free(state.transitions);
@@ -1149,6 +1192,22 @@ pub const RegexFSM = struct {
             ssm.deinit(self.allocator);
         self.substate_machines.deinit(self.allocator);
         self.set_datatypes.deinit(self.allocator);
+    }
+};
+pub const WasmExport = struct {
+    pub const Transition = enum(u8) {
+        none = 0,
+        single = 1,
+        range = 2,
+    };
+    allocator: std.mem.Allocator,
+    nfa: std.ArrayListUnmanaged(u32) = .{},
+    dfa: std.ArrayListUnmanaged(u32) = .{},
+    dfa_min: std.ArrayListUnmanaged(u32) = .{},
+    pub fn deinit(self: *WasmExport) void {
+        self.nfa.deinit(self.allocator);
+        self.dfa.deinit(self.allocator);
+        self.dfa_min.deinit(self.allocator);
     }
 };
 const PowerSetHashMap = struct {

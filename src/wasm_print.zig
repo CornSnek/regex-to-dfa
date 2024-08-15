@@ -1,5 +1,6 @@
+//!Overrides logFn and panic to log output to JavaScript.
 const std = @import("std");
-//Overrides logFn and panic to log output to JavaScript.
+extern fn JSPrint([*c]const u8, usize, PrintType) void;
 pub fn panic(mesg: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noreturn {
     @setCold(true);
     FlushPrint();
@@ -20,7 +21,6 @@ pub fn panic(mesg: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noreturn 
     JSPrint(&error_buffer[0], ebi, .err);
     @trap();
 }
-extern fn JSPrint([*c]const u8, usize, PrintType) void;
 var wasm_printer = WasmPrinter{};
 pub const std_options = struct {
     pub const log_level = .debug;
@@ -98,7 +98,7 @@ const WasmPrinter = struct {
 };
 pub fn WasmError(err: anyerror) noreturn {
     FlushPrint();
-    std.log.err("Wasm uncatched error.{s}", .{@errorName(err)});
+    std.log.err("Wasm uncatched error: {s}", .{@errorName(err)});
     FlushPrint();
     @trap();
 }

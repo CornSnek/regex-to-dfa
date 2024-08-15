@@ -60,6 +60,23 @@ pub fn SortedList(comptime T: type, comptime Cmp: anytype) type {
             }
             return;
         }
+        pub fn search(self: @This(), value: T) ?usize {
+            if (self.list.items.len == 0) return null;
+            var low_i: usize = 0;
+            var high_i: usize = self.list.items.len - 1;
+            var mid_i = high_i / 2;
+            while (high_i >= low_i) : (mid_i = (high_i + low_i) / 2) {
+                if (Cmp.eq(value, self.list.items[mid_i])) return mid_i;
+                if (Cmp.lt(self.list.items[mid_i], value)) {
+                    low_i = mid_i + 1;
+                } else {
+                    if (mid_i != 0) {
+                        high_i = mid_i - 1;
+                    } else return null;
+                }
+            }
+            return null;
+        }
         pub fn exists(self: @This(), value: T) bool {
             if (self.list.items.len == 0) return false;
             var low_i: usize = 0;
