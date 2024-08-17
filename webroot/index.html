@@ -1,13 +1,57 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
+
 <head>
-  <script type="module">
-    import * as index_module from "./index.js"; //Temporary to expose wasm exports for testing
-    window.module=index_module;
-  </script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Regex to DFA Converter</title>
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="stylesheet" type="text/css" href="index.css">
+  <script type="module">
+    import * as index from "./index.js";
+    window.index = index;
+  </script>
+  <script src="form.js"></script>
 </head>
+
 <body>
-  TODO: Build a website here
+  <div id="body-grid">
+
+    <div id="str-input">
+      <form id="form-grid">
+        <label for="regex">Regex String:</label>
+        <input type="text" id="regex">
+        <label for="teststr">Test String:</label>
+        <input type="text" id="teststr">
+        <button type="button" id="form-button">Submit</button>
+      </form>
+    </div>
+
+    <div id="error-message">
+    </div>
+
+    <div id="fsm-type">
+      <div>NFA</div>
+      <div>DFA</div>
+      <div>DFA Minimized</div>
+    </div>
+
+    <table id="transitions">
+      <thead>
+        <tr>
+          <th>
+            <div>State</div>
+          </th>
+          <th>
+            <div>Transitions</div>
+          </th>
+        </tr>
+      </thead>
+      <tbody id="transitions-body">
+      </tbody>
+    </table>
+
+  </div>
 </body>
+
 </html>

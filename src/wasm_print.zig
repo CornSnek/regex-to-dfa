@@ -98,7 +98,7 @@ const WasmPrinter = struct {
 };
 pub fn WasmError(err: anyerror) noreturn {
     FlushPrint();
-    std.log.err("Wasm uncatched error: {s}", .{@errorName(err)});
+    std.log.err("Wasm found error: '{s}'", .{@errorName(err)});
     FlushPrint();
     @trap();
 }

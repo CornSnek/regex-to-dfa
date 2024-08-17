@@ -43,7 +43,6 @@ pub fn build(b: *std.Build) !void {
         "WasmAlloc",  "WasmFree",   "WasmFreeAll",   "WasmListAllocs",
         "RegexToDFA", "FlushPrint", "StatesStrings", "StatesStringsLen",
     };
-    const wasm_step = b.step("wasm", "Build wasm binary");
     const install_website = b.addInstallDirectory(.{
         .source_dir = b.path(webroot_str),
         .install_dir = .bin,
@@ -56,11 +55,19 @@ pub fn build(b: *std.Build) !void {
             "wasm",
         }),
     });
+    const wasm_step = b.step("wasm", "Build wasm binary (Also removes old website files in zig-out)");
     wasm_step.dependOn(&install_wasm.step);
     install_wasm.step.dependOn(&install_website.step);
     install_website.step.dependOn(b.getUninstallStep()); //Reinstall website steps again
-    const run_website_step = b.step("server", "Install wasm binary, website files, and run python http.server");
+    const run_website_step = b.step("server", "Initializes the wasm step, and runs python http.server");
     const python_http = b.addSystemCommand(&.{ "python", "-m", "http.server", "-d", "zig-out/bin/webroot/" });
     run_website_step.dependOn(&python_http.step);
     python_http.step.dependOn(&install_wasm.step);
+    const install_website2 = b.addInstallDirectory(.{
+        .source_dir = b.path(webroot_str),
+        .install_dir = .bin,
+        .install_subdir = webroot_str,
+    });
+    const copy_website = b.step("copy_website", "Only copy website files to zig-out");
+    copy_website.dependOn(&install_website2.step);
 }

@@ -99,6 +99,11 @@ pub const RegexLexer = struct {
                             read_state = .{ .set = @intCast(i + 1) };
                         },
                         '.' => try token_array.append(.{ .tt = .{ .char_set = .@"." }, .begin = i, .end = i }),
+                        ']' => {
+                            highlight_error(regex_str, i, i);
+                            std.log.err("Stray unescaped ']' found\n", .{});
+                            return error.LexerError;
+                        },
                         else => try token_array.append(.{ .tt = .{ .char = c }, .begin = i, .end = i }),
                     }
                 },
@@ -569,7 +574,11 @@ fn highlight_error(str: []const u8, begin_i: usize, end_i: usize) void {
         str[end_i + 1 ..],
     });
     if (!in_os) {
-        std.log.debug("{[0]c: >[1]}{[0]c: >[2]} <- (Error here)\n", .{ '^', begin_i + 1, end_i - begin_i });
+        if (begin_i != end_i) {
+            std.log.err("{[0]c:->[1]}{[0]c: >[2]} <- (Error here)\n", .{ '^', begin_i + 1, end_i - begin_i });
+        } else {
+            std.log.err("{[0]c:->[1]} <- (Error here)\n", .{ '^', begin_i + 1 });
+        }
     }
 }
 pub fn stray_quantifier(allocator: std.mem.Allocator, q: []const Token) anyerror![]const u8 {
@@ -749,13 +758,13 @@ pub const RegexEngine = struct {
             try wasm_jsalloc.slice_to_js(nfa_slice);
             try wasm_jsalloc.slice_to_js(dfa_slice);
             try wasm_jsalloc.slice_to_js(dfa_min_slice);
-            @memcpy(&StatesStrings, &[_][*c]align(@alignOf(u32)) u8{ nfa_slice.ptr, dfa_slice.ptr, dfa_min_slice.ptr });
-            @memcpy(&StatesStringsLen, &[_]usize{ nfa_slice.len, dfa_slice.len, dfa_min_slice.len });
+            @memcpy(&StatesStrings, &[_][*c]u32{ @ptrCast(nfa_slice.ptr), @ptrCast(dfa_slice.ptr), @ptrCast(dfa_min_slice.ptr) });
+            @memcpy(&StatesStringsLen, &[_]usize{ nfa_slice.len / 4, dfa_slice.len / 4, dfa_min_slice.len / 4 });
             self.wasm_export.deinit();
         }
     }
-    //Format nfa, dfa, dfa (minimized)
-    pub export var StatesStrings: [3][*c]align(@alignOf(u32)) u8 = .{ 0, 0, 0 };
+    // Format nfa, dfa, dfa (minimized). Len is the size as u32 instead of u8.
+    pub export var StatesStrings: [3][*c]u32 = .{ 0, 0, 0 };
     pub export var StatesStringsLen: [3]usize = .{ 0, 0, 0 };
     pub fn deinit(self: *RegexEngine) void {
         self.token_stack.deinit(self.allocator);

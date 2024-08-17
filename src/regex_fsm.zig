@@ -1143,9 +1143,11 @@ pub const RegexFSM = struct {
             self.states.items[i] = undefined;
         }
     }
-    /// Format {this_state, accept, number_transitions, transitions_byte_count, (Transitions) ... }
+    /// Format {number_of_states, (States) ... }
+    /// (States) are formatted as {this_state, accept, number_transitions, transitions_byte_count, (Transitions) ... }
     /// (Transitions) are formatted as { tr.to, .none }, { tr.to, .single, wc }, or { tr.to, .range, min, max }
     pub fn construct_wasm(self: *const RegexFSM, wasm_export: *WasmExport, comptime list_field: []const u8) !void {
+        try @field(wasm_export, list_field).append(self.allocator, @intCast(self.states.items.len));
         for (self.states.items) |state| {
             const start_str = @field(wasm_export, list_field).items.len;
             try @field(wasm_export, list_field).appendSlice(self.allocator, &.{
