@@ -4,10 +4,10 @@ let TD = new TextDecoder();
 let TE = new TextEncoder();
 export let regex_to_dfa = function (str) {
   const err_msg = document.getElementById("error-message");
-  err_msg.innerHTML="";
+  err_msg.innerHTML = "";
   err_msg.style.display = "none";
   if (str.length == 0) {
-    err_msg.innerHTML="Regex string should not be empty.";
+    err_msg.innerHTML = "Regex string should not be empty.";
     err_msg.style.display = "initial";
     return;
   }
@@ -16,18 +16,17 @@ export let regex_to_dfa = function (str) {
   const alloc_mem = Exports.WasmAlloc(enc_str.byteLength);
   const mem_view = new Uint8Array(Exports.memory.buffer, alloc_mem, enc_str.byteLength);
   mem_view.set(enc_str);
-  try {
-    Exports.RegexToDFA(alloc_mem, enc_str.byteLength);
-  } finally {
-    Exports.WasmFree(alloc_mem);
-  }
+  document.getElementById("transitions").className="no-fsm-yet";
+  document.getElementById("fsm-type").className="no-fsm-yet"; //Disable if error (try doesn't work)
+  Exports.RegexToDFA(alloc_mem, enc_str.byteLength);
+  Exports.WasmFree(alloc_mem);
   const ss_view = new Uint32Array(Exports.memory.buffer, Exports.StatesStrings.value, 3);
   const ss_len_view = new Uint32Array(Exports.memory.buffer, Exports.StatesStringsLen.value, 3)
-  return {
-    nfa: new Uint32Array(Exports.memory.buffer, ss_view[0], ss_len_view[0]),
-    dfa: new Uint32Array(Exports.memory.buffer, ss_view[1], ss_len_view[1]),
-    dfa_min: new Uint32Array(Exports.memory.buffer, ss_view[2], ss_len_view[2]),
-  };
+  return [
+    new Uint32Array(Exports.memory.buffer, ss_view[0], ss_len_view[0]),
+    new Uint32Array(Exports.memory.buffer, ss_view[1], ss_len_view[1]),
+    new Uint32Array(Exports.memory.buffer, ss_view[2], ss_len_view[2]),
+  ];
 }
 async function JSPrint(BufferAddr, Len, Type) {
   const string = TD.decode(new Uint8Array(Exports.memory.buffer, BufferAddr, Len));

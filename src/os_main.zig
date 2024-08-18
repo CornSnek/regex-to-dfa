@@ -32,7 +32,7 @@ pub fn main_loop(allocator: std.mem.Allocator) void {
             parse_tree.construct(&rc, regex_engine.RegexEngine.construct) catch |e| break :err_label e;
         }) catch {
             os_log_debug("DFA Compilation failure...\n", .{}, .{});
-            //return;
+            return;
         };
     }
 }

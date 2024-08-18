@@ -101,7 +101,7 @@ pub const RegexLexer = struct {
                         '.' => try token_array.append(.{ .tt = .{ .char_set = .@"." }, .begin = i, .end = i }),
                         ']' => {
                             highlight_error(regex_str, i, i);
-                            std.log.err("Stray unescaped ']' found\n", .{});
+                            std.log.err("Stray unescaped ']' found outside set\n", .{});
                             return error.LexerError;
                         },
                         else => try token_array.append(.{ .tt = .{ .char = c }, .begin = i, .end = i }),
@@ -115,6 +115,11 @@ pub const RegexLexer = struct {
                         },
                         '^' => if (set_begin_i != i) try token_array.append(.{ .tt = .{ .char = '^' }, .begin = i, .end = i }) else try token_array.append(.{ .tt = .@"set^", .begin = i, .end = i }),
                         '-' => try token_array.append(.{ .tt = .@"-", .begin = i, .end = i }),
+                        '[' => {
+                            highlight_error(regex_str, i, i);
+                            std.log.err("Stray unescaped '[' found inside set\n", .{});
+                            return error.LexerError;
+                        },
                         ']' => {
                             if (i == set_begin_i) {
                                 highlight_error(regex_str, set_begin_i - 1, i);
@@ -163,7 +168,7 @@ pub const RegexLexer = struct {
                         '-' => if (has_minus) {
                             try token_array.append(.{ .tt = .{ .char = '-' }, .begin = i - 1, .end = i });
                         } else {
-                            std.log.err("'-' is not a valid character to escape\n", .{});
+                            std.log.err("'-' is not a valid character to escape (only in sets)\n", .{});
                             return error.LexerError;
                         },
                         else => |ch| {

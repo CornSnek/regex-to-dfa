@@ -2,6 +2,7 @@
   --red-1: #941b1b;
   --red-2: red;
   --div-color: #656565;
+  --div-color2: #a5a5a5;
   --green: #00bf00;
   --state-1: #fff;
   --state-2: #bbb;
@@ -14,6 +15,7 @@
 body {
   font-family: "Lucida Console", "Courier New", monospace;
   color: white;
+  overflow-y: scroll;
 }
 
 a {
@@ -25,7 +27,9 @@ a {
 #body-grid {
   display: grid;
   gap: 10px;
-  width: 100%;
+  max-width: 100%;
+  position: relative;
+  top: 10px;
 }
 
 #form-grid {
@@ -35,23 +39,35 @@ a {
 }
 
 #form-button {
-  grid-area: 1 / 3 / 3 / 4;
+  grid-area: 1 / 3 / 4 / 4;
   min-width: 50px;
 }
 
 #str-input,
 #error-message,
-#fsm-type,
 #transitions {
-  max-width: 100%;
   background-color: var(--div-color);
   padding: 0.5rem;
   border-radius: 10px;
 }
 
+#header-grid{
+  position: sticky;
+  top: 0px;
+  left: 0px;
+  display: grid;
+  gap: 10px;
+  max-width: 100%;
+  z-index: 2;
+  background-color: var(--div-color2);
+  border-radius: 10px;
+  padding: 10px;
+}
+
 #error-message {
   display: none;
   background-color: var(--red-1);
+  overflow-x: scroll;
 }
 
 #fsm-type {
@@ -60,7 +76,11 @@ a {
   text-align: center;
 }
 
-#fsm-type > div {
+.no-fsm-yet {
+  opacity: 50%;
+}
+
+#fsm-type div {
   background-color: black;
   border-radius: 5px;
   gap: 5px;
@@ -68,15 +88,16 @@ a {
   cursor: pointer;
 }
 
-#transitions {
+#fsm-type div.selected-fsm {
+  background-color: white;
   color: black;
+  cursor: default;
 }
 
-#transitions,
-table {
-  width: 100%;
+#transitions {
+  color: black;
   box-sizing: border-box;
-  margin: 0;
+  border-collapse: collapse;
 }
 
 #transitions tr th div {
@@ -94,13 +115,14 @@ table {
 
 #transitions tr :is(td, th):first-child {
   text-align: center;
-  min-width: 125px;
 }
 
 #transitions tr td:nth-child(2) div {
   padding-left: 0.5rem;
   padding-right: 0.5rem;
+  margin: 0 0.125rem;
   display: inline-block;
+  cursor: pointer;
 }
 
 #transitions tr td div {
@@ -130,7 +152,7 @@ table {
   color: white;
   border-radius: 5px;
   padding: 0.125rem 0.25rem;
-  font-size: 0.75rem;
+  font-size: 1rem;
   vertical-align: middle;
 }
 
@@ -145,4 +167,17 @@ table {
 .mark.epsilon {
   background-color: var(--mark-epsilon-bg);
   color: var(--mark-epsilon);
+}
+
+#transitions tr {
+  transition-duration: 0.25s;
+  transition-timing-function: ease-out;
+}
+
+.highlight-state,
+.highlight-state *{
+  transition-duration: 0.25s;
+  transition-timing-function: ease-out;
+  background-color: white !important;
+  color: black !important;
 }

@@ -8,35 +8,36 @@
   <link rel="icon" type="image/x-icon" href="favicon.ico">
   <link rel="stylesheet" type="text/css" href="index.css">
   <script type="module">
-    import * as index from "./index.js";
-    window.index = index;
+    import * as wasm from "./wasm.js";
+    window.wasm = wasm;
   </script>
-  <script src="form.js"></script>
+  <script src="website.js"></script>
 </head>
 
 <body>
-  <div id="body-grid">
-
+  <div id="header-grid">
+    <div id="error-message"></div>
     <div id="str-input">
       <form id="form-grid">
         <label for="regex">Regex String:</label>
         <input type="text" id="regex">
-        <label for="teststr">Test String:</label>
+        <label for="regex-patterns">Load Regex Pattern:</label>
+        <select id="regex-patterns"></select>
+        <label for="teststr">Test String (TODO):</label>
         <input type="text" id="teststr">
-        <button type="button" id="form-button">Submit</button>
+        <button type="button" id="form-button">Compile Regex</button>
       </form>
     </div>
-
-    <div id="error-message">
-    </div>
-
-    <div id="fsm-type">
-      <div>NFA</div>
+    <div id="fsm-type" class="no-fsm-yet">
+      <div class="selected-fsm">NFA</div>
       <div>DFA</div>
       <div>DFA Minimized</div>
     </div>
+  </div>
 
-    <table id="transitions">
+  <div id="body-grid">
+
+    <table id="transitions" class="no-fsm-yet">
       <thead>
         <tr>
           <th>

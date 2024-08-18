@@ -578,7 +578,10 @@ pub const RegexFSM = struct {
     }
     /// As quantifier `{by}`
     pub fn repetition(self: *RegexFSM, by: u32) !void {
-        std.debug.assert(by != 0);
+        if (by == 0) {
+            try self.replace_as_empty();
+            return;
+        }
         var ssm_repeat = self.substate_machines.pop();
         std.debug.assert(ssm_repeat.accept == .NFA);
         const repeat_slice = try self.allocator.dupe(RegexState, self.states.items[ssm_repeat.init .. ssm_repeat.accept.NFA + 1]);
@@ -596,7 +599,7 @@ pub const RegexFSM = struct {
                 for (e.transitions) |*tr|
                     tr.to += id_inc * @as(u32, @intCast(repeat_slice.len));
             }
-            if (id_inc == by - 1) break;
+            if (id_inc + 1 == by) break;
             self.states.items[self.states.items.len - 1].accept = false;
             self.states.items[self.states.items.len - 1].transitions = try self.allocator.alloc(Transition, 1);
             self.states.items[self.states.items.len - 1].transitions[0] = .{ .to = @intCast(self.states.items.len), .dtype = .none };
@@ -606,7 +609,10 @@ pub const RegexFSM = struct {
     }
     /// As quantifier `{,by}`
     pub fn repetition_lte(self: *RegexFSM, by: u32) !void {
-        std.debug.assert(by != 0);
+        if (by == 0) {
+            try self.replace_as_empty();
+            return;
+        }
         var ssm_repeat = self.substate_machines.pop();
         std.debug.assert(ssm_repeat.accept == .NFA);
         const repeat_slice = try self.allocator.dupe(RegexState, self.states.items[ssm_repeat.init .. ssm_repeat.accept.NFA + 1]);
@@ -644,6 +650,14 @@ pub const RegexFSM = struct {
         ssm_repeat.accept.NFA = accept_state_i;
         self.substate_machines.appendAssumeCapacity(ssm_repeat);
     }
+    /// When 0 is used for numbered quantifiers
+    fn replace_as_empty(self: *RegexFSM) !void {
+        const ssm = self.substate_machines.pop();
+        std.debug.assert(ssm.accept == .NFA);
+        for (self.states.items[ssm.init .. ssm.accept.NFA + 1]) |state| self.allocator.free(state.transitions);
+        self.states.shrinkRetainingCapacity(ssm.init);
+        try self.empty();
+    }
     /// As quantifier `{by,}`
     pub fn repetition_gte(self: *RegexFSM, by: u32) !void {
         for (0..by) |_| try self.clone_ssm();
@@ -652,7 +666,7 @@ pub const RegexFSM = struct {
     }
     /// As quantifier `{from,to}`
     pub fn repetition_between(self: *RegexFSM, from: u32, to: u32) !void {
-        std.debug.assert(from != 0 and from <= to);
+        std.debug.assert(from <= to);
         if (from != to) {
             for (0..from) |_| try self.clone_ssm();
             try self.repetition_lte(to - from);
