@@ -1,19 +1,19 @@
 document.addEventListener("DOMContentLoaded", function () {
-  button = document.getElementById("form-button");
+  button = document.getElementById("compile-button");
   regex = document.getElementById("regex");
   teststr = document.getElementById("teststr");
   transitions = document.getElementById("transitions");
   transitions_body = document.getElementById("transitions-body");
   regex_patterns = document.getElementById("regex-patterns");
   fsm_type = document.getElementById("fsm-type");
-  button.addEventListener("click", parse_regex);
+  button.onclick = parse_regex;
   for (let i = 0; i < 3; i++) {
     fsm_type.children[i].onclick = function (e) {
-      if (e.target.className === 'selected-fsm') return;
-      fsm_type.children[states_i].className = "";
-      e.target.className = 'selected-fsm';
+      if (e.target.classList.contains('selected-fsm')) return;
+      fsm_type.children[states_i].classList.remove('selected-fsm');
+      e.target.classList.add('selected-fsm');
       states_i = i;
-      if (fsm_type.className === 'no-fsm-yet') return;
+      if (fsm_type.classList.contains('no-fsm-yet')) return;
       parse_states(states[i]);
     };
   }
@@ -34,11 +34,10 @@ function change_list_empty(e){
 }
 const regex_patterns_obj={
   "":"",
-  "Social Security Number":"((219-09-9999|078-05-1120)(666|000|9\\d{2})\\d{3}-(00)\\d{2}-(0{4})\\d{4})|((219 09 9999|078 05 1120)(666|000|9\\d{2})\\d{3} (00)\\d{2} (0{4})\\d{4})|((219099999|078051120)(666|000|9\\d{2})\\d{3}(00)\\d{2}(0{4})\\d{4})",
   "Time HH:MM:SS, 12-hour format, leading 0 hour optional":"(0?[1-9]|1[0-2]):([0-5]\\d):([0-5]\\d) ?([AP]M|[ap]m)",
   "Time HH:MM:SS, 24-hour format":"([01]\\d|2[0-3]):([0-5]\\d):([0-5]\\d)",
   "Username where alphanumeric strings and - are allowed, 3 to 16 characters only, and letter is the 1st character":"[A-Za-z][\\w\\-]{2,15}",
-  "IP Version 4 (IPv4)":"((\\d|[1-9]\\d|1\\d{2}|2[0-4]\\d|25[0-5])\\.){3}(\\d|[1-9]\\d|1\\d{2}|2[0-4]\\d|25[0-5])",
+  "IP Version 4 (IPv4)":"((25[0-5]|2[0-4]\\d|1\\d{2}|[1-9]\\d?|0)\\.){3}(25[0-5]|2[0-4]\\d|1\\d{2}|[1-9]\\d?|0)",
   "IP Version 6 (IPv6), leading zeroes required and :: zeroes compression disallowed":"([\\dA-Fa-f]{4}:){7}([\\dA-Fa-f]{4})",
   "IP Version 6 (IPv6), leading zeroes optional and :: zeroes compression allowed":"((([\\dA-Fa-f]{1,4}:){7}([\\dA-Fa-f]{1,4}|:))|(([\\dA-Fa-f]{1,4}:){1,7}:)|(([\\dA-Fa-f]{1,4}:){1,6}:[\\dA-Fa-f]{1,4})|(([\\dA-Fa-f]{1,4}:){1,5}(:[\\dA-Fa-f]{1,4}){1,2})|(([\\dA-Fa-f]{1,4}:){1,4}(:[\\dA-Fa-f]{1,4}){1,3})|(([\\dA-Fa-f]{1,4}:){1,3}(:[\\dA-Fa-f]{1,4}){1,4})|(([\\dA-Fa-f]{1,4}:){1,2}(:[\\dA-Fa-f]{1,4}){1,5})|(([\\dA-Fa-f]{1,4}:)(:[\\dA-Fa-f]{1,4}){1,6})|(:((:[\\dA-Fa-f]{1,4}){1,7}|:)))(%.+)?",
 };
@@ -54,8 +53,8 @@ let states_i = 0;
 function parse_regex() {
   states = window.wasm.regex_to_dfa(regex.value);
   if (states === undefined) return;
-  fsm_type.className = "";
-  transitions.className = "";
+  fsm_type.classList.remove("no-fsm-yet");
+  transitions.classList.remove("no-fsm-yet");
   parse_states(states[states_i]);
 }
 //Parse states to HTML.
@@ -97,7 +96,7 @@ function parse_states(state_arr) {
     tr.appendChild(td_transition);
     const div_state = document.createElement("div");
     td_state.appendChild(div_state);
-    if (accept_arr[state_num]) div_state.className = "accept-state";
+    if (accept_arr[state_num]) div_state.classList.add("accept-state");
     if (state_i == 0) {
       div_state.innerHTML = `${state_num} <em class="mark error">Error</em>`;
       const div_transition = document.createElement("div");
@@ -118,7 +117,7 @@ function parse_states(state_arr) {
         const type_tr = state_arr[arr_i++];
         const div_transition = document.createElement("div");
         td_transition.appendChild(div_transition);
-        if (accept_arr[to_state]) div_transition.className = "accept-state";
+        if (accept_arr[to_state]) div_transition.classList.add("accept-state");
         switch (type_tr) {
           case 0:
             div_transition.innerHTML = `<em class="mark epsilon">&#x025B;</em>`;
@@ -147,8 +146,8 @@ function parse_states(state_arr) {
 function move_to_state(e){
   const html_to_state = document.getElementById(`s${this.to_state}`);
   html_to_state.scrollIntoView({ behavior: 'instant', block: 'center' });
-  html_to_state.className = 'highlight-state';
-  setTimeout(() => html_to_state.className = '', 500);
+  html_to_state.classList.add('highlight-state');
+  setTimeout(() => html_to_state.classList.remove('highlight-state'), 500);
 }
 function char_or_unicode(num) {
   if (32 <= num && num <= 126) {

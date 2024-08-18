@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Regex to DFA Converter</title>
+  <title>RegexStateMachine</title>
   <link rel="icon" type="image/x-icon" href="favicon.ico">
   <link rel="stylesheet" type="text/css" href="index.css">
   <script type="module">
@@ -15,28 +15,37 @@
 </head>
 
 <body>
+
   <div id="header-grid">
+    <h1 id="title-web">RegexStateMachine</h1>
+    <div id="web-desc"><strong>Web Application that converts a Regular Expression into NFA and DFA Finite State Machines</strong></div>
     <div id="error-message"></div>
     <div id="str-input">
       <form id="form-grid">
         <label for="regex">Regex String:</label>
         <input type="text" id="regex">
-        <label for="regex-patterns">Load Regex Pattern:</label>
+        <label for="regex-patterns" class="tooltip-show">Regex Pattern Examples:<span class="tooltip-right">Selecting an option replaces the current Regex String</span></label>
         <select id="regex-patterns"></select>
-        <label for="teststr">Test String (TODO):</label>
+        <label for="teststr" class="tooltip-show">Test String (TODO):<span class="tooltip-right">TODO</span></label>
         <input type="text" id="teststr">
-        <button type="button" id="form-button">Compile Regex</button>
+        <button type="button" id="compile-button">Compile Regex</button>
+        <button type="button" id="test-button">Test String</button>
       </form>
     </div>
     <div id="fsm-type" class="no-fsm-yet">
-      <div class="selected-fsm">NFA</div>
-      <div>DFA</div>
-      <div>DFA Minimized</div>
+      <div class="selected-fsm tooltip-show">NFA
+        <span class="tooltip-bottom">NFA (Nondeterministic Finite Automata) is a type of finite-state machine where a character or unicode can have more than one state to go to. This NFA uses epsilon (&#x025B;) to show that a state can move to any other &#x025B; it can find in its current state, including through multiple &#x025B;. This allows a character or unicode to have more than one state.</span>
+      </div>
+      <div class="tooltip-show">DFA
+        <span class="tooltip-bottom">DFA (Deterministic Finite Automata) is a type of finite-state machine where all &#x025B; are removed to have a char or unicode move to ONLY 1 state. The powerset construction is used to convert the NFA to a DFA.</span>
+      </div>
+      <div class="tooltip-show">DFA Minimized
+        <span class="tooltip-bottom">This DFA has redundant or equivalent states merged together, and it behaves exactly as the non-minimized DFA. Hopcroft's algorithm has been applied to minimize the states of a DFA.</span>
+      </div>
     </div>
   </div>
 
   <div id="body-grid">
-
     <table id="transitions" class="no-fsm-yet">
       <thead>
         <tr>
@@ -44,15 +53,15 @@
             <div>State</div>
           </th>
           <th>
-            <div>Transitions</div>
+            <div class="tooltip-show">Transitions<span class="tooltip-bottom">Any unspecified chars or unicodes always go to the <em class="mark error">Error</em> state, a dead state that prevents the string from going to an <em class="mark accept">Accept</em> state. An <em class="mark accept">Accept</em> state determines if the Test String matches the regex pattern. You can click on any transition to allow your browser to scroll and highlight that state.</span></div>
           </th>
         </tr>
       </thead>
       <tbody id="transitions-body">
       </tbody>
     </table>
-
   </div>
+
 </body>
 
 </html>

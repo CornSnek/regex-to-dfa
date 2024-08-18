@@ -16,8 +16,8 @@ export let regex_to_dfa = function (str) {
   const alloc_mem = Exports.WasmAlloc(enc_str.byteLength);
   const mem_view = new Uint8Array(Exports.memory.buffer, alloc_mem, enc_str.byteLength);
   mem_view.set(enc_str);
-  document.getElementById("transitions").className="no-fsm-yet";
-  document.getElementById("fsm-type").className="no-fsm-yet"; //Disable if error (try doesn't work)
+  document.getElementById("transitions").classList.add("no-fsm-yet");
+  document.getElementById("fsm-type").classList.add("no-fsm-yet");
   Exports.RegexToDFA(alloc_mem, enc_str.byteLength);
   Exports.WasmFree(alloc_mem);
   const ss_view = new Uint32Array(Exports.memory.buffer, Exports.StatesStrings.value, 3);

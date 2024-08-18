@@ -2,7 +2,7 @@
   --red-1: #941b1b;
   --red-2: red;
   --div-color: #656565;
-  --div-color2: #a5a5a5;
+  --div-color2: #777777;
   --green: #00bf00;
   --state-1: #fff;
   --state-2: #bbb;
@@ -12,10 +12,19 @@
   --mark-epsilon-bg: #9f9f9f;
 }
 
+#title-web,
+#web-desc {
+  text-align: center;
+  padding: 0;
+  margin: 0;
+}
+
 body {
   font-family: "Lucida Console", "Courier New", monospace;
   color: white;
+  background-color: #3f3f3f;
   overflow-y: scroll;
+  overflow-x: hidden;
 }
 
 a {
@@ -38,8 +47,8 @@ a {
   gap: 8px;
 }
 
-#form-button {
-  grid-area: 1 / 3 / 4 / 4;
+#compile-button {
+  grid-area: 1 / 3 / 3 / 4;
   min-width: 50px;
 }
 
@@ -51,7 +60,7 @@ a {
   border-radius: 10px;
 }
 
-#header-grid{
+#header-grid {
   position: sticky;
   top: 0px;
   left: 0px;
@@ -92,6 +101,40 @@ a {
   background-color: white;
   color: black;
   cursor: default;
+}
+
+.tooltip-bottom,
+.tooltip-right {
+  visibility: hidden;
+  position: absolute;
+  text-align: center;
+  border-radius: 5px;
+  background-color: black;
+  color: white;
+  z-index: 2;
+  font-size: 1rem;
+  padding: 2% 5%;
+  width: 100%;
+}
+
+.tooltip-bottom {
+  top: 100%;
+  left: 45%;
+  margin-left: -50%;
+}
+
+.tooltip-right {
+  left: 100%;
+  border-radius: 5px;
+}
+
+.tooltip-show {
+  position: relative;
+  text-decoration: underline dotted;
+}
+
+.tooltip-show:hover :is(.tooltip-bottom, .tooltip-right) {
+  visibility: visible;
 }
 
 #transitions {
@@ -175,7 +218,7 @@ a {
 }
 
 .highlight-state,
-.highlight-state *{
+.highlight-state * {
   transition-duration: 0.25s;
   transition-timing-function: ease-out;
   background-color: white !important;
