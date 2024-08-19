@@ -40,8 +40,9 @@ pub fn build(b: *std.Build) !void {
     wasm_exe.entry = .disabled;
     wasm_exe.rdynamic = true;
     wasm_exe.root_module.export_symbol_names = &.{
-        "WasmAlloc",  "WasmFree",   "WasmFreeAll",   "WasmListAllocs",
-        "RegexToDFA", "FlushPrint", "StatesStrings", "StatesStringsLen",
+        "WasmAlloc",         "WasmFree",              "WasmFreeAll",              "WasmListAllocs",
+        "RegexToDFA",        "FlushPrint",            "StatesStrings",            "StatesStringsLen",
+        "TransitionGraphU8", "TransitionGraphString", "TransitionGraphStringLen",
     };
     const install_website = b.addInstallDirectory(.{
         .source_dir = b.path(webroot_str),

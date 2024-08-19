@@ -23,9 +23,11 @@ const NonWasmLog = struct {
     }
 };
 const WasmLog = @import("wasm_print.zig").std_options;
-///If used in WASM .freestanding, excludes the ansi_codes
+///If used in WASM .freestanding, excludes the ansi_codes. debug.print for tests.
 pub fn os_log_debug(comptime format: []const u8, args: anytype, ansi_codes: anytype) void {
-    if (@import("builtin").os.tag != .freestanding) {
+    if (@import("builtin").is_test) {
+        std.debug.print(ESC(format, ansi_codes), args);
+    } else if (@import("builtin").os.tag != .freestanding) {
         std.log.debug(ESC(format, ansi_codes), args);
     } else {
         std.log.debug(format, args);

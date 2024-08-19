@@ -322,8 +322,16 @@ pub const RegexState = struct {
         }
         return ErrorState;
     }
-    fn to_state_ptr(self: *const RegexState, ctx: *const RegexStateContext, wc: u16) *const RegexState {
-        return &ctx.array[self.to_state(wc)];
+    fn get_transition(self: *const RegexState, wc: u16) Transition {
+        for (self.transitions) |tr| {
+            switch (tr.dtype) {
+                .none => continue,
+                .char => |c| if (wc == c) return tr,
+                .unicode => |u| if (wc == u) return tr,
+                .range => |r| if (r.contains_point(wc)) return tr,
+            }
+        }
+        return .{ .to = ErrorState, .dtype = .none }; //.none resembling other keys resulting in the ErrorState
     }
     /// Returns a list of transitions that point to different transitions by ranges and/or points.
     fn to_states(self: *const RegexState, allocator: std.mem.Allocator, range: Range(u16)) ![]Transition {
@@ -403,11 +411,6 @@ pub const RegexState = struct {
         }
         try writer.writeAll(" } ] }");
     }
-};
-pub const RegexStateContext = struct {
-    array: []const RegexState,
-    ///TODO
-    str: []const u8 = &.{},
 };
 pub const CharacterSet = enum {
     @".",
@@ -1176,21 +1179,21 @@ pub const RegexFSM = struct {
                     .none => {
                         try @field(wasm_export, list_field).appendSlice(
                             self.allocator,
-                            &.{ tr.to, @intFromEnum(WasmExport.Transition.none) },
+                            &.{ tr.to, @intFromEnum(WasmExport.TransitionEnum.none) },
                         );
                         @field(wasm_export, list_field).items[byte_count_i] += 2;
                     },
                     .unicode, .char => |wc| {
                         try @field(wasm_export, list_field).appendSlice(
                             self.allocator,
-                            &.{ tr.to, @intFromEnum(WasmExport.Transition.single), wc },
+                            &.{ tr.to, @intFromEnum(WasmExport.TransitionEnum.single), wc },
                         );
                         @field(wasm_export, list_field).items[byte_count_i] += 3;
                     },
                     .range => |r| {
                         try @field(wasm_export, list_field).appendSlice(
                             self.allocator,
-                            &.{ tr.to, @intFromEnum(WasmExport.Transition.range), r.min, r.max },
+                            &.{ tr.to, @intFromEnum(WasmExport.TransitionEnum.range), r.min, r.max },
                         );
                         @field(wasm_export, list_field).items[byte_count_i] += 4;
                     },
@@ -1199,6 +1202,25 @@ pub const RegexFSM = struct {
             const end_str = @field(wasm_export, list_field).items.len;
             std.log.debug("{any}\n", .{@field(wasm_export, list_field).items[start_str..end_str]});
         }
+    }
+    pub const TransitionsGraph = struct {
+        list: std.ArrayListUnmanaged(Transition),
+        final_state: u32,
+        accept: bool,
+        pub fn deinit(self: *TransitionsGraph, allocator: std.mem.Allocator) void {
+            self.list.deinit(allocator);
+        }
+    };
+    pub fn get_string_state_transitions_u8(self: RegexFSM, str: []const u8) !TransitionsGraph {
+        var state_now: *const RegexState = &self.states.items[1];
+        var tg: std.ArrayListUnmanaged(Transition) = .{};
+        errdefer tg.deinit(self.allocator);
+        for (str) |ch| {
+            const tr = state_now.get_transition(ch);
+            state_now = &self.states.items[tr.to];
+            try tg.append(self.allocator, tr);
+        }
+        return .{ .list = tg, .final_state = state_now.id, .accept = state_now.accept };
     }
     pub fn deinit(self: *RegexFSM) void {
         for (self.states.items) |state|
@@ -1211,7 +1233,7 @@ pub const RegexFSM = struct {
     }
 };
 pub const WasmExport = struct {
-    pub const Transition = enum(u8) {
+    pub const TransitionEnum = enum(u32) {
         none = 0,
         single = 1,
         range = 2,
@@ -1280,16 +1302,6 @@ const PowerSetHashMap = struct {
         self.hm.deinit(allocator);
     }
 };
-pub fn input_string(init: u32, ctx: *RegexStateContext, str: []const u8) *const RegexState {
-    std.debug.assert(init != 0);
-    var state = &ctx.array[init];
-    ctx.str = str[0..0];
-    for (str) |ch| {
-        state = state.to_state_ptr(ctx, ch);
-        ctx.str.len += 1;
-    }
-    return state;
-}
 test "RegexState" {
     var rfsm: RegexFSM = try RegexFSM.init(std.testing.allocator);
     defer rfsm.deinit();
@@ -1324,9 +1336,7 @@ test "RegexState" {
     try rfsm.hopcroft_algorithm();
     os_log_debug("Sub state machines: {any}\n", .{rfsm.substate_machines.items}, .{1});
     for (rfsm.states.items) |state| os_log_debug("{}\n", .{state}, .{});
-    //var rsctx: RegexStateContext = .{ .array = rfsm.states.items };
-    //os_log_debug("States: {any}\nState now: {any}\n", .{
-    //    rfsm.states.items,
-    //    input_string(1, &rsctx, "B"),
-    //});
+    var tg = try rfsm.get_string_state_transitions_u8("aeij");
+    defer tg.deinit(std.testing.allocator);
+    os_log_debug("{any}\n-> Final state: {} ({s})\n", .{ tg.list.items, tg.final_state, if (tg.accept) "accepted" else "not accepted" }, .{});
 }

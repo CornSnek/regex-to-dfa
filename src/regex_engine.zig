@@ -580,9 +580,9 @@ fn highlight_error(str: []const u8, begin_i: usize, end_i: usize) void {
     });
     if (!in_os) {
         if (begin_i != end_i) {
-            std.log.err("{[0]c:->[1]}{[0]c: >[2]} <- (Error here)\n", .{ '^', begin_i + 1, end_i - begin_i });
+            std.log.err("{[0]c: >[1]}{[0]c: >[2]} <- (Error here)\n", .{ '^', begin_i + 1, end_i - begin_i });
         } else {
-            std.log.err("{[0]c:->[1]} <- (Error here)\n", .{ '^', begin_i + 1 });
+            std.log.err("{[0]c: >[1]} <- (Error here)\n", .{ '^', begin_i + 1 });
         }
     }
 }
@@ -768,9 +768,9 @@ pub const RegexEngine = struct {
             self.wasm_export.deinit();
         }
     }
-    // Format nfa, dfa, dfa (minimized). Len is the size as u32 instead of u8.
-    pub export var StatesStrings: [3][*c]u32 = .{ 0, 0, 0 };
-    pub export var StatesStringsLen: [3]usize = .{ 0, 0, 0 };
+    // Format nfa, dfa, dfa (minimized).
+    export var StatesStrings: [3][*c]u32 = .{ 0, 0, 0 };
+    export var StatesStringsLen: [3]usize = .{ 0, 0, 0 };
     pub fn deinit(self: *RegexEngine) void {
         self.token_stack.deinit(self.allocator);
         self.fsm.deinit();
