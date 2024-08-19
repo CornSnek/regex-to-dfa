@@ -1,0 +1,58 @@
+# This is a basic workflow to help you get started with Actions
+
+name: CI
+
+# Controls when the workflow will run
+on:
+  # Triggers the workflow on push or pull request events but only for the "main" branch
+  push:
+    branches: [ "publish" ]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  install:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Get Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: 0.13.0
+      - name: Install Wasm and Files
+        run: zig build wasm -Doptimize=ReleaseSafe
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: www
+          path: zig-out/wwwroot
+          retention-days: 1
+  deploy:
+    needs: install
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download site files
+        uses: actions/download-artifact@v4
+        with:
+          name: www
+          path: public
+      - name: Configure GitHub pages
+        uses: actions/configure-pages@v5
+      - name: Upload GitHub pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+      - name: Deploy to GitHub pages
+        id: deployment
+        uses: actions/deploy-pages@v4
