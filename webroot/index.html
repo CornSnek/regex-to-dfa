@@ -17,7 +17,7 @@
 <body>
 
   <div id="header-grid">
-    <h1 id="title-web">RegexStateMachine</h1>
+    <h1 id="title-web">RegexStateMachine <em class="mark"><a href="https://github.com/CornSnek/regex-to-dfa">GitHub Source Code</a></em></h1>
     <div id="web-desc"><strong>Converts Regular Expressions into NFA and DFA FSMs, and Test Strings</strong></div>
     <div id="error-message"></div>
     <div id="str-input">
@@ -27,8 +27,9 @@
         <label for="regex-patterns" class="tooltip-show">Regex Pattern Examples:<span class="tooltip-right">Selecting an
             option replaces the current Regex String and automatically compiles the Regex</span></label>
         <select id="regex-patterns"></select>
-        <label for="test-regex" class="tooltip-show">Test String:<span class="tooltip-right">String that will be tested
-            by the Regex pattern and will output all of its transitions. This automatically switches to the DFA minimized option.</span></label>
+        <label for="test-regex" class="tooltip-show">Test String<br>(ASCII Only):<span class="tooltip-right">String that will be tested
+            by the Regex pattern and will output all of its transitions. This switches to the DFA
+            Minimized option.</span></label>
         <input type="text" id="test-regex">
         <button type="button" id="compile-button">Compile Regex</button>
       </form>
@@ -36,7 +37,8 @@
     <div id="fsm-type" class="no-fsm-yet">
       <div class="selected-fsm tooltip-show">NFA
         <span class="tooltip-bottom">NFA (Nondeterministic Finite Automata) is a type of finite-state machine where a
-          character or unicode can have more than one state transition to go to. This NFA uses epsilon (&#x025B;) to allow a state to move to any other &#x025B;, including through multiple &#x025B;.</span>
+          character or unicode can have more than one state transition to go to. This NFA uses epsilon (&#x025B;) to
+          allow a state to move to any other &#x025B;, including through multiple &#x025B;.</span>
       </div>
       <div class="tooltip-show">DFA
         <span class="tooltip-bottom">DFA (Deterministic Finite Automata) is a type of finite-state machine where all
@@ -47,6 +49,10 @@
         <span class="tooltip-bottom">This DFA has redundant or equivalent states merged together, and it behaves exactly
           as the non-minimized DFA. Hopcroft's algorithm has been applied to minimize the states of a DFA.</span>
       </div>
+    </div>
+    <div id="test-string-output-footer">
+      <div>Test String Transitions Output</div>
+      <div id="test-string-output"></div>
     </div>
   </div>
 
@@ -69,11 +75,6 @@
       <tbody id="transitions-body">
       </tbody>
     </table>
-  </div>
-
-  <div id="test-string-output-footer">
-    <div>Test String Transitions Output</div>
-    <div id="test-string-output"></div>
   </div>
 
 </body>

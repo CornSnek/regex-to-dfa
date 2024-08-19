@@ -1,4 +1,4 @@
-export let WasmObj;
+let WasmObj;
 let Exports;
 let TD = new TextDecoder();
 let TE = new TextEncoder();
@@ -8,6 +8,7 @@ export let regex_to_dfa = function (str) {
   err_msg.style.display = "none";
   document.getElementById("transitions").classList.add("no-fsm-yet");
   document.getElementById("fsm-type").classList.add("no-fsm-yet");
+  document.getElementById("test-string-output").innerHTML='';
   Exports.WasmFreeAll();
   if (str.length == 0) {
     Exports.RegexToDFA(0, 0);
