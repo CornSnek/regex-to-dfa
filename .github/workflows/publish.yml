@@ -33,7 +33,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: www
-          path: zig-out/bin/wwwroot
+          path: zig-out/bin/webroot
           retention-days: 1
   deploy:
     needs: install
