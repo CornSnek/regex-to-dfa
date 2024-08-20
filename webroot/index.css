@@ -68,9 +68,14 @@ a {
   border-radius: var(--radius-big);
 }
 
-#github-logo{
-  display:inline-block;
-  height:1.5rem;
+#github-logo {
+  display: inline-block;
+  height: 1.5rem;
+}
+
+#cancel-compilation-body {
+  display: none;
+  text-align: center;
 }
 
 #header-grid {

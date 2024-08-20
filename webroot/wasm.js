@@ -2,8 +2,9 @@ let WasmObj = null;
 let Exports = null;
 let TD = new TextDecoder();
 let TE = new TextEncoder();
-let regex_to_dfa = function (str) {
-  postMessage(["set_compile_state",undefined]);
+function regex_to_dfa(str) {
+  postMessage(["toggle_cancel", true]);
+  postMessage(["set_compile_state", undefined]);
   Exports.WasmFreeAll();
   if (str.length == 0) {
     Exports.RegexToDFA(0, 0);
@@ -17,13 +18,14 @@ let regex_to_dfa = function (str) {
   }
   const ss_view = new Uint32Array(Exports.memory.buffer, Exports.StatesStrings.value, 3);
   const ss_len_view = new Uint32Array(Exports.memory.buffer, Exports.StatesStringsLen.value, 3);
+  postMessage(["toggle_cancel", false]);
   return ["parse_regex", [
     new Uint32Array(Exports.memory.buffer, ss_view[0], ss_len_view[0]),
     new Uint32Array(Exports.memory.buffer, ss_view[1], ss_len_view[1]),
     new Uint32Array(Exports.memory.buffer, ss_view[2], ss_len_view[2]),
   ]];
 }
-let test_string = function (str) {
+function test_string(str) {
   if (str.length == 0) {
     Exports.TransitionGraphU8(0, 0);
   } else {
@@ -45,7 +47,7 @@ async function JSPrint(BufferAddr, Len, Type) {
   } else if (Type == 1) {
     console.warn(string);
   } else {
-    postMessage(["append_error",string]);
+    postMessage(["append_error", string]);
     console.error(string);
   }
 }
@@ -64,7 +66,8 @@ const worker_module = {
 onmessage = onmessage_f;
 function onmessage_f(e) {
   if (WasmObj != null && Exports != null) {
-    postMessage(worker_module[e.data[0]](e.data[1]));
+    const return_data=worker_module[e.data[0]](e.data[1]);
+    if(return_data!==undefined) postMessage(return_data);
   } else {
     setTimeout(onmessage_f, 1000, e);
   }

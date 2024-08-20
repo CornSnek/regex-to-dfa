@@ -1,5 +1,7 @@
 document.addEventListener("DOMContentLoaded", function () {
   compile_button = document.getElementById("compile-button");
+  cancel_compilation = document.getElementById("cancel-compilation");
+  cancel_compilation_body = document.getElementById("cancel-compilation-body");
   regex = document.getElementById("regex");
   test_regex_e = document.getElementById("test-regex");
   transitions = document.getElementById("transitions");
@@ -7,11 +9,16 @@ document.addEventListener("DOMContentLoaded", function () {
   regex_patterns = document.getElementById("regex-patterns");
   fsm_type = document.getElementById("fsm-type");
   test_string_output = document.getElementById("test-string-output");
-  wasm_worker = new Worker("wasm.js");
   compile_button.onclick = () => wasm_worker.postMessage(["regex_to_dfa", regex.value]);
+  create_wasm_worker();
+  cancel_compilation.onclick = () => {
+    wasm_worker.terminate(); //Not sure if there's a possible "async" way of just cancelling inside the wasm file using the worker other than .terminate().
+    create_wasm_worker();
+    append_error("Cancelled compilation.");
+    toggle_cancel(false);
+  };
   test_regex_e.oninput = () => wasm_worker.postMessage(["test_string", test_regex_e.value]);
   test_regex_e.onfocus = dfa_min_and_test_regex;
-  wasm_worker.onmessage = e => worker_handler_module[e.data[0]](e.data[1]);
   err_msg = document.getElementById("error-message");
   for (let i = 0; i < 3; i++) {
     const state_f = { i: i, f: select_fsm };
@@ -26,7 +33,13 @@ document.addEventListener("DOMContentLoaded", function () {
   regex_patterns.onchange = compile_pattern;
   regex.onfocus = change_list_empty;
 });
+function create_wasm_worker() {
+  wasm_worker = new Worker("wasm.js");
+  wasm_worker.onmessage = e => worker_handler_module[e.data[0]](e.data[1]);
+  wasm_worker.onerror = () => toggle_cancel(false);
+}
 const worker_handler_module = {
+  toggle_cancel: toggle_cancel,
   set_compile_state: set_compile_state,
   parse_regex: parse_regex,
   append_error: append_error,
@@ -59,6 +72,8 @@ const regex_patterns_obj = {
   "IP Version 6 (IPv6), leading zeroes optional and :: zeroes compression allowed": "((([\\dA-Fa-f]{1,4}:){7}([\\dA-Fa-f]{1,4}|:))|(([\\dA-Fa-f]{1,4}:){1,7}:)|(([\\dA-Fa-f]{1,4}:){1,6}:[\\dA-Fa-f]{1,4})|(([\\dA-Fa-f]{1,4}:){1,5}(:[\\dA-Fa-f]{1,4}){1,2})|(([\\dA-Fa-f]{1,4}:){1,4}(:[\\dA-Fa-f]{1,4}){1,3})|(([\\dA-Fa-f]{1,4}:){1,3}(:[\\dA-Fa-f]{1,4}){1,4})|(([\\dA-Fa-f]{1,4}:){1,2}(:[\\dA-Fa-f]{1,4}){1,5})|(([\\dA-Fa-f]{1,4}:)(:[\\dA-Fa-f]{1,4}){1,6})|(:((:[\\dA-Fa-f]{1,4}){1,7}|:)))(%.+)?",
 };
 let compile_button;
+let cancel_compilation;
+let cancel_compilation_body;
 let regex;
 let test_regex_e;
 let transitions;
@@ -77,6 +92,11 @@ function parse_regex(data) {
   transitions.classList.remove("no-fsm-yet");
   parse_states(states[states_i]);
 }
+function toggle_cancel(b) {
+  compile_button.disabled = b;
+  cancel_compilation.disabled = !b;
+  cancel_compilation_body.style.display = (!b) ? "none" : "initial";
+}
 function set_compile_state() {
   err_msg.innerHTML = '';
   err_msg.style.display = "none";
@@ -85,7 +105,7 @@ function set_compile_state() {
   test_string_output.innerHTML = '';
 }
 function append_error(msg) {
-  err_msg.textContent+=msg;
+  err_msg.textContent += msg;
   err_msg.style.display = "initial";
 }
 //Parse states to HTML.

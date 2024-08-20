@@ -28,5 +28,4 @@ Python 3 is also used to build the server to build and test the website: `zig bu
 
 ## Current Bugs
 - Fix the implementation of Hopcroft's Algorithm as it doesn't necessarily minimize the states correctly for some Regex patterns.
-- The website freezes when using Regex that computes a significant large amount of states due to the calculations in the Wasm file, and not giving control to the browser.
 - Only ascii characters in the textboxs are currently supported. The wasm binary currently does not convert any UTF-8 strings. Only `\uxxxx` is supported for the Regex String textbox.
