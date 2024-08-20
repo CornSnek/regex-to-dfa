@@ -7,11 +7,14 @@ document.addEventListener("DOMContentLoaded", function () {
   regex_patterns = document.getElementById("regex-patterns");
   fsm_type = document.getElementById("fsm-type");
   test_string_output = document.getElementById("test-string-output");
-  compile_button.onclick = parse_regex;
-  test_regex_e.oninput = test_regex;
+  wasm_worker = new Worker("wasm.js");
+  compile_button.onclick = () => wasm_worker.postMessage(["regex_to_dfa", regex.value]);
+  test_regex_e.oninput = () => wasm_worker.postMessage(["test_string", test_regex_e.value]);
   test_regex_e.onfocus = dfa_min_and_test_regex;
+  wasm_worker.onmessage = e => worker_handler_module[e.data[0]](e.data[1]);
+  err_msg = document.getElementById("error-message");
   for (let i = 0; i < 3; i++) {
-    const state_f={i:i,f:select_fsm};
+    const state_f = { i: i, f: select_fsm };
     fsm_type.children[i].onclick = select_fsm.bind(state_f);
   }
   for (const [k, v] of Object.entries(regex_patterns_obj)) {
@@ -23,6 +26,12 @@ document.addEventListener("DOMContentLoaded", function () {
   regex_patterns.onchange = compile_pattern;
   regex.onfocus = change_list_empty;
 });
+const worker_handler_module = {
+  set_compile_state: set_compile_state,
+  parse_regex: parse_regex,
+  append_error: append_error,
+  test_regex: test_regex,
+};
 function select_fsm(e) {
   if (e.target.classList.contains('selected-fsm')) return;
   fsm_type.children[states_i].classList.remove('selected-fsm');
@@ -32,9 +41,9 @@ function select_fsm(e) {
   parse_states(states[this.i]);
 }
 function compile_pattern(e) {
-  if (e.target.value !== ""){
+  if (e.target.value !== "") {
     regex.value = e.target.value;
-    parse_regex();
+    wasm_worker.postMessage(["regex_to_dfa", regex.value]);
   }
 }
 function change_list_empty(e) {
@@ -58,13 +67,26 @@ let states;
 let regex_patterns;
 let fsm_type;
 let test_string_output;
+let wasm_worker;
+let err_msg;
 let states_i = 0;
-function parse_regex() {
-  states = window.wasm.regex_to_dfa(regex.value);
+function parse_regex(data) {
+  states = data;
   if (states === undefined) return;
   fsm_type.classList.remove("no-fsm-yet");
   transitions.classList.remove("no-fsm-yet");
   parse_states(states[states_i]);
+}
+function set_compile_state() {
+  err_msg.innerHTML = '';
+  err_msg.style.display = "none";
+  transitions.classList.add("no-fsm-yet");
+  fsm_type.classList.add("no-fsm-yet");
+  test_string_output.innerHTML = '';
+}
+function append_error(msg) {
+  err_msg.textContent+=msg;
+  err_msg.style.display = "initial";
 }
 //Parse states to HTML.
 function parse_states(state_arr) {
@@ -165,21 +187,18 @@ function char_or_unicode(num) {
   }
 }
 function dfa_min_and_test_regex() {
-  const state_f={i:2}; //DFA Min
-  const e={target:fsm_type.children[2]};
+  const state_f = { i: 2 }; //DFA Min
+  const e = { target: fsm_type.children[2] };
   select_fsm.bind(state_f)(e);
-  test_regex();
+  wasm_worker.postMessage(["test_string", test_regex_e.value]);
 }
-function test_regex() {
-  const test_regex_str = test_regex_e.value;
-  const tgs = window.wasm.test_string(test_regex_str);
+function test_regex(tgs) {
   if (tgs.length == 0) return;
-  console.log(tgs);
   test_string_output.innerHTML = "";
   const init_state = document.createElement("div");
   test_string_output.appendChild(init_state);
   init_state.innerHTML = `1 <em class="mark">Init</em>`;
-  const init_state_f = {to_state:1};
+  const init_state_f = { to_state: 1 };
   init_state.onclick = move_to_state.bind(init_state_f);
   const fs_i = tgs[0];
   const fs_accept = tgs[1];
@@ -189,16 +208,16 @@ function test_regex() {
   while (tgs_i - 3 < tgs_byte_count) {
     const tr_state = tgs[tgs_i++];
     const this_tr_div = document.createElement("div");
-    const tr_state_f = {to_state:tr_state};
+    const tr_state_f = { to_state: tr_state };
     this_tr_div.onclick = move_to_state.bind(tr_state_f);
     test_string_output.appendChild(this_tr_div);
     const is_accept = tgs[tgs_i++];
     if (tr_state == 0) {
       this_tr_div.classList.add("error");
-      this_tr_div.innerHTML = `<em class="mark error">${test_regex_str[key_i++]}</em> &#x2192; 0`;
+      this_tr_div.innerHTML = `<em class="mark error">${test_regex_e.value[key_i++]}</em> &#x2192; 0`;
     } else {
       if (is_accept) this_tr_div.classList.add("accept");
-      this_tr_div.innerHTML = `<em class="mark ${(is_accept) ? "accept" : ""}">${test_regex_str[key_i++]}</em> &#x2192; ${tr_state}`;
+      this_tr_div.innerHTML = `<em class="mark ${(is_accept) ? "accept" : ""}">${test_regex_e.value[key_i++]}</em> &#x2192; ${tr_state}`;
     }
   }
   const final_state = document.createElement("div");
@@ -206,7 +225,7 @@ function test_regex() {
   final_state.classList.add(AcceptOrError);
   test_string_output.appendChild(final_state);
   final_state.innerHTML = `<em class="mark ${AcceptOrError}">${(fs_accept == 1) ? "Accepted" : "Rejected"}</em> ${fs_i}`;
-  const final_state_f = {to_state:fs_i};
+  const final_state_f = { to_state: fs_i };
   final_state.onclick = move_to_state.bind(final_state_f);
   move_to_state.bind(final_state_f)(); //Also move to that state.
 }
