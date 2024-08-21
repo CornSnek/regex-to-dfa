@@ -749,6 +749,20 @@ pub const RegexEngine = struct {
         os_log_debug("Sub state machines: {any}\n", .{self.fsm.substate_machines.items}, .{1});
         for (self.fsm.states.items) |state| os_log_debug("{}\n", .{state}, .{});
         try self.fsm.hopcroft_algorithm();
+        var old_ssm: ?regex_fsm.RegexFSM.SubStateMachine = null;
+        defer if (old_ssm) |ossm| ossm.deinit(self.allocator);
+        while (true) { //Temporary to try to minimize by using the algorithm again multiple times.
+            os_log_debug("(Re)applying hopcroft algorithm again.\n", .{}, .{ 34, 1 });
+            try self.fsm.hopcroft_algorithm();
+            const new_ssm = self.fsm.substate_machines.getLast();
+            if (old_ssm != null) {
+                if (std.mem.eql(u32, old_ssm.?.accept.DFA, new_ssm.accept.DFA)) {
+                    break;
+                }
+            }
+            old_ssm = new_ssm;
+            old_ssm.?.accept.DFA = try self.allocator.dupe(u32, old_ssm.?.accept.DFA);
+        }
         if (in_wasm)
             try self.fsm.construct_wasm(&self.wasm_export, "dfa_min");
         os_log_debug("Sub state machines: {any}\n", .{self.fsm.substate_machines.items}, .{1});

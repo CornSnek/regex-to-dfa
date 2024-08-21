@@ -30,8 +30,8 @@ pub fn main_loop(allocator: std.mem.Allocator) void {
             var rc: regex_engine.RegexEngine = regex_engine.RegexEngine.init(allocator, lexer.str) catch |e| break :err_label e;
             defer rc.deinit();
             parse_tree.construct(&rc, regex_engine.RegexEngine.construct) catch |e| break :err_label e;
-        }) catch {
-            os_log_debug("DFA Compilation failure...\n", .{}, .{});
+        }) catch |e| {
+            os_log_debug("DFA Compilation failure ({s})\n", .{@errorName(e)}, .{});
             return;
         };
     }

@@ -964,7 +964,7 @@ pub const RegexFSM = struct {
             ec.accept = self.states.items[state].accept;
             eq_classes[i] = ec;
         }
-        {
+        { // ((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?){4} should be 51 based from myhill_nerode minimization. Anything greater != minimized. This code is still not correctly minimizing the DFA.
             var group_i: u32 = 2;
             var state_to_group: std.AutoHashMapUnmanaged(u32, u32) = .{};
             defer state_to_group.deinit(self.allocator);
