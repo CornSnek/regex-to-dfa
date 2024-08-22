@@ -964,7 +964,7 @@ pub const RegexFSM = struct {
             ec.accept = self.states.items[state].accept;
             eq_classes[i] = ec;
         }
-        { // ((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?){4} should be 51 based from myhill_nerode minimization. Anything greater != minimized. This code is still not correctly minimizing the DFA.
+        {
             var group_i: u32 = 2;
             var state_to_group: std.AutoHashMapUnmanaged(u32, u32) = .{};
             defer state_to_group.deinit(self.allocator);
@@ -972,6 +972,11 @@ pub const RegexFSM = struct {
                 try state_to_group.put(self.allocator, eqc.state, eqc.group);
             var has_changed: bool = true;
             while (has_changed) {
+                var recently_changed_groups: std.ArrayListUnmanaged(struct { state: u32, group: u32 }) = .{};
+                defer {
+                    for (recently_changed_groups.items) |item| state_to_group.putAssumeCapacity(item.state, item.group);
+                    recently_changed_groups.deinit(self.allocator);
+                }
                 has_changed = false;
                 const eq_partitions = try EQPartitions.get(self.allocator, eq_classes, group_i);
                 defer self.allocator.free(eq_partitions);
@@ -1017,8 +1022,8 @@ pub const RegexFSM = struct {
                                     new_group_i = group_i;
                                     group_i += 1;
                                 }
-                                eq_classes[cmp_eq_i].group = new_group_i.?;
-                                state_to_group.putAssumeCapacity(eq_cmp_state_i, new_group_i.?);
+                                eq_classes[cmp_eq_i].group = new_group_i.?; //Change state_to_group after loop ends for all keys/states.
+                                try recently_changed_groups.append(self.allocator, .{ .state = eq_cmp_state_i, .group = new_group_i.? });
                             }
                         }
                     }

@@ -67,7 +67,7 @@ const regex_patterns_obj = {
   "Time HH:MM:SS, 12-hour format, leading 0 hour optional": "(0?[1-9]|1[0-2]):([0-5]\\d):([0-5]\\d) ?([AP]M|[ap]m)",
   "Time HH:MM:SS, 24-hour format": "([01]\\d|2[0-3]):([0-5]\\d):([0-5]\\d)",
   "Username where alphanumeric strings and - are allowed, 3 to 16 characters only, and letter is the 1st character": "[A-Za-z][\\w\\-]{2,15}",
-  "IP Version 4 (IPv4)": "((25[0-5]|2[0-4]\\d|1\\d{2}|[1-9]\\d?|0)\\.){3}(25[0-5]|2[0-4]\\d|1\\d{2}|[1-9]\\d?|0)",
+  "IP Version 4 (IPv4)": "((25[0-5]|(2[0-4]|1\\d|[1-9]|)\\d)\\.){3}(25[0-5]|(2[0-4]|1\\d|[1-9]|)\\d)",
   "IP Version 6 (IPv6), leading zeroes required and :: zeroes compression disallowed": "([\\dA-Fa-f]{4}:){7}([\\dA-Fa-f]{4})",
   "IP Version 6 (IPv6), leading zeroes optional and :: zeroes compression allowed": "((([\\dA-Fa-f]{1,4}:){7}([\\dA-Fa-f]{1,4}|:))|(([\\dA-Fa-f]{1,4}:){1,7}:)|(([\\dA-Fa-f]{1,4}:){1,6}:[\\dA-Fa-f]{1,4})|(([\\dA-Fa-f]{1,4}:){1,5}(:[\\dA-Fa-f]{1,4}){1,2})|(([\\dA-Fa-f]{1,4}:){1,4}(:[\\dA-Fa-f]{1,4}){1,3})|(([\\dA-Fa-f]{1,4}:){1,3}(:[\\dA-Fa-f]{1,4}){1,4})|(([\\dA-Fa-f]{1,4}:){1,2}(:[\\dA-Fa-f]{1,4}){1,5})|(([\\dA-Fa-f]{1,4}:)(:[\\dA-Fa-f]{1,4}){1,6})|(:((:[\\dA-Fa-f]{1,4}){1,7}|:)))(%.+)?",
 };
