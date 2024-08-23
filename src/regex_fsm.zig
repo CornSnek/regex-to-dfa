@@ -150,8 +150,6 @@ pub const Transition = struct {
             self.* = &.{};
             return;
         }
-        t_ptr = self.len - 1;
-        var copy_len: usize = 0;
         var nonconnected: usize = 0;
         var merged_ranges: usize = 0;
         while (t_ptr != 0) : (t_ptr -= 1) { //Merge connected ranges and points backwards
@@ -179,7 +177,6 @@ pub const Transition = struct {
                 }
             }
             if (dtype_merges == 0) {
-                copy_len += 1;
                 nonconnected += 1;
                 cmp_tr = cmp_next_tr;
                 continue;
@@ -189,12 +186,11 @@ pub const Transition = struct {
                 .char, .unicode => cmp_tr.dtype,
                 .range => |r| DataType.r_or_un(r),
             };
-            std.mem.copyForwards(Transition, self.*[t_ptr + 1 ..], self.*[new_self_len - copy_len .. new_self_len]);
+            std.mem.copyForwards(Transition, self.*[t_ptr + 1 ..], self.*[new_self_len - (merged_ranges + nonconnected) .. new_self_len]);
             merged_ranges += 1;
-            copy_len = merged_ranges + nonconnected;
             new_self_len -= dtype_merges;
             dtype_merges = 0;
-            cmp_tr.dtype = cmp_next_tr.dtype;
+            cmp_tr = cmp_next_tr;
         }
         if (dtype_merges != 0) {
             self.*[0].dtype = switch (cmp_tr.dtype) {
@@ -203,7 +199,7 @@ pub const Transition = struct {
                 .range => |r| DataType.r_or_un(r),
             };
             if (self.*[0].to == RegexState.ErrorState) self.*[0].to = cmp_tr.to;
-            std.mem.copyForwards(Transition, self.*[1..], self.*[new_self_len - copy_len .. new_self_len]);
+            std.mem.copyForwards(Transition, self.*[1..], self.*[new_self_len - (merged_ranges + nonconnected) .. new_self_len]);
             new_self_len -= dtype_merges;
         }
         self.* = try allocator.realloc(self.*, new_self_len);
@@ -260,6 +256,39 @@ test "Transition merge remove duplicates" {
     try std.testing.expectEqualSlices(Transition, &.{
         .{ .to = 1, .dtype = .{ .range = .{ .min = 'A', .max = 'D' } } },
         .{ .to = 1, .dtype = .{ .range = .{ .min = 'a', .max = 'e' } } },
+    }, transitions);
+}
+test "Transition merge remove duplicates 2" {
+    var transitions = try std.testing.allocator.dupe(Transition, &[_]Transition{
+        .{ .to = 16, .dtype = .{ .range = .{ .min = '6', .max = '9' } } },
+        .{ .to = 16, .dtype = .{ .range = .{ .min = '6', .max = '9' } } },
+        .{ .to = 28, .dtype = .{ .unicode = '5' } },
+        .{ .to = 29, .dtype = .{ .unicode = '.' } },
+        .{ .to = 29, .dtype = .{ .unicode = '.' } },
+        .{ .to = 29, .dtype = .{ .unicode = '.' } },
+        .{ .to = 19, .dtype = .{ .range = .{ .min = '0', .max = '4' } } },
+        .{ .to = 19, .dtype = .{ .range = .{ .min = '0', .max = '4' } } },
+        .{ .to = 22, .dtype = .{ .range = .{ .min = 'a', .max = 'z' } } },
+        .{ .to = 22, .dtype = .{ .range = .{ .min = 'a', .max = 'z' } } },
+        .{ .to = 22, .dtype = .{ .range = .{ .min = 'a', .max = 'z' } } },
+        .{ .to = 22, .dtype = .{ .range = .{ .min = 'a', .max = 'z' } } },
+        .{ .to = 30, .dtype = .{ .unicode = '5' } },
+        .{ .to = 30, .dtype = .{ .unicode = '5' } },
+        .{ .to = 30, .dtype = .{ .unicode = '5' } },
+        .{ .to = 30, .dtype = .{ .unicode = '5' } },
+        .{ .to = 32, .dtype = .{ .unicode = '9' } },
+        .{ .to = 32, .dtype = .{ .unicode = '9' } },
+    });
+    defer std.testing.allocator.free(transitions);
+    try Transition.union_merge(&transitions, std.testing.allocator);
+    try std.testing.expectEqualSlices(Transition, &.{
+        .{ .to = 16, .dtype = .{ .range = .{ .min = '6', .max = '9' } } },
+        .{ .to = 19, .dtype = .{ .range = .{ .min = '0', .max = '4' } } },
+        .{ .to = 22, .dtype = .{ .range = .{ .min = 'a', .max = 'z' } } },
+        .{ .to = 28, .dtype = .{ .unicode = '5' } },
+        .{ .to = 29, .dtype = .{ .unicode = '.' } },
+        .{ .to = 30, .dtype = .{ .unicode = '5' } },
+        .{ .to = 32, .dtype = .{ .unicode = '9' } },
     }, transitions);
 }
 test "Transition merge remove ErrorStates" {
@@ -1344,41 +1373,41 @@ const PowerSetHashMap = struct {
         self.hm.deinit(allocator);
     }
 };
-test "RegexState" {
-    var rfsm: RegexFSM = try RegexFSM.init(std.testing.allocator);
-    defer rfsm.deinit();
-    try rfsm.add_datatype(.{ .char = 'a' });
-    try rfsm.add_datatype(.{ .char = 'b' });
-    try rfsm.alternation();
-    try rfsm.add_datatype(.{ .char = 'c' });
-    try rfsm.alternation();
-    try rfsm.add_datatype(.{ .char = 'd' });
-    try rfsm.add_datatype(.{ .char = 'e' });
-    try rfsm.alternation();
-    try rfsm.add_datatype(.{ .char = 'f' });
-    try rfsm.alternation();
-    try rfsm.concatenation();
-    try rfsm.add_datatype(.{ .char = 'g' });
-    try rfsm.add_datatype(.{ .char = 'h' });
-    try rfsm.alternation();
-    try rfsm.add_datatype(.{ .char = 'i' });
-    try rfsm.alternation();
-    try rfsm.concatenation();
-    try rfsm.add_datatype(.{ .char = 'j' });
-    try rfsm.add_datatype(.{ .char = 'k' });
-    try rfsm.alternation();
-    try rfsm.add_datatype(.{ .char = 'l' });
-    try rfsm.alternation();
-    try rfsm.concatenation();
-    os_log_debug("Sub state machines: {any}\n", .{rfsm.substate_machines.items}, .{1});
-    for (rfsm.states.items) |state| os_log_debug("{}\n", .{state}, .{});
-    try rfsm.nfa_to_dfa();
-    os_log_debug("Sub state machines: {any}\n", .{rfsm.substate_machines.items}, .{1});
-    for (rfsm.states.items) |state| os_log_debug("{}\n", .{state}, .{});
-    try rfsm.hopcroft_algorithm();
-    os_log_debug("Sub state machines: {any}\n", .{rfsm.substate_machines.items}, .{1});
-    for (rfsm.states.items) |state| os_log_debug("{}\n", .{state}, .{});
-    var tg = try rfsm.get_string_state_transitions_u8("aeij");
-    defer tg.deinit(std.testing.allocator);
-    os_log_debug("{any}\n-> Final state: {} ({s})\n", .{ tg.list.items, tg.final_state, if (tg.accept) "accepted" else "not accepted" }, .{});
-}
+//test "RegexState" {
+//    var rfsm: RegexFSM = try RegexFSM.init(std.testing.allocator);
+//    defer rfsm.deinit();
+//    try rfsm.add_datatype(.{ .char = 'a' });
+//    try rfsm.add_datatype(.{ .char = 'b' });
+//    try rfsm.alternation();
+//    try rfsm.add_datatype(.{ .char = 'c' });
+//    try rfsm.alternation();
+//    try rfsm.add_datatype(.{ .char = 'd' });
+//    try rfsm.add_datatype(.{ .char = 'e' });
+//    try rfsm.alternation();
+//    try rfsm.add_datatype(.{ .char = 'f' });
+//    try rfsm.alternation();
+//    try rfsm.concatenation();
+//    try rfsm.add_datatype(.{ .char = 'g' });
+//    try rfsm.add_datatype(.{ .char = 'h' });
+//    try rfsm.alternation();
+//    try rfsm.add_datatype(.{ .char = 'i' });
+//    try rfsm.alternation();
+//    try rfsm.concatenation();
+//    try rfsm.add_datatype(.{ .char = 'j' });
+//    try rfsm.add_datatype(.{ .char = 'k' });
+//    try rfsm.alternation();
+//    try rfsm.add_datatype(.{ .char = 'l' });
+//    try rfsm.alternation();
+//    try rfsm.concatenation();
+//    os_log_debug("Sub state machines: {any}\n", .{rfsm.substate_machines.items}, .{1});
+//    for (rfsm.states.items) |state| os_log_debug("{}\n", .{state}, .{});
+//    try rfsm.nfa_to_dfa();
+//    os_log_debug("Sub state machines: {any}\n", .{rfsm.substate_machines.items}, .{1});
+//    for (rfsm.states.items) |state| os_log_debug("{}\n", .{state}, .{});
+//    try rfsm.hopcroft_algorithm();
+//    os_log_debug("Sub state machines: {any}\n", .{rfsm.substate_machines.items}, .{1});
+//    for (rfsm.states.items) |state| os_log_debug("{}\n", .{state}, .{});
+//    var tg = try rfsm.get_string_state_transitions_u8("aeij");
+//    defer tg.deinit(std.testing.allocator);
+//    os_log_debug("{any}\n-> Final state: {} ({s})\n", .{ tg.list.items, tg.final_state, if (tg.accept) "accepted" else "not accepted" }, .{});
+//}

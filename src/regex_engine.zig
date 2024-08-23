@@ -946,3 +946,13 @@ pub fn create_parse_tree(allocator: std.mem.Allocator, lexer: RegexLexer) !Regex
     }
     return root;
 }
+//test "regex_engine check if Transition.union_merge() is working" {
+//    const allocator = std.testing.allocator;
+//    var lexer = try RegexLexer.init(allocator, "((25[0-5]|(2[0-4]|1\\d|[1-9]|)\\d)\\.?){3}");
+//    defer lexer.deinit();
+//    const parse_tree = try create_parse_tree(allocator, lexer);
+//    defer _ = parse_tree.deinit(allocator);
+//    var rc: RegexEngine = try RegexEngine.init(allocator, lexer.str);
+//    defer rc.deinit();
+//    try parse_tree.construct(&rc, RegexEngine.construct);
+//}

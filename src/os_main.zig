@@ -13,6 +13,7 @@ pub const std_options: std.Options = .{
 };
 test {
     _ = regex_fsm;
+    _ = regex_engine;
     _ = @import("sorted_list.zig");
     _ = Range;
 }
