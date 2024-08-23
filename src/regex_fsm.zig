@@ -897,7 +897,6 @@ pub const RegexFSM = struct {
     const EquivalenceClass = struct {
         group: u32,
         state: u32,
-        accept: bool,
         pub fn group_then_state_sort(_: void, a: EquivalenceClass, b: EquivalenceClass) bool {
             if (a.group != b.group) return a.group < b.group;
             return a.state < b.state;
@@ -961,7 +960,6 @@ pub const RegexFSM = struct {
             var ec: EquivalenceClass = undefined;
             ec.state = state;
             ec.group = @as(u32, @intFromBool(self.states.items[state].accept));
-            ec.accept = self.states.items[state].accept;
             eq_classes[i] = ec;
         }
         {
@@ -980,12 +978,16 @@ pub const RegexFSM = struct {
                 has_changed = false;
                 const eq_partitions = try EQPartitions.get(self.allocator, eq_classes, group_i);
                 defer self.allocator.free(eq_partitions);
+                var recently_added_group: std.AutoHashMapUnmanaged(u32, u32) = .{}; //k: group, v: first changed state
+                defer recently_added_group.deinit(self.allocator);
                 for (eq_partitions) |eqp| {
                     if (eqp.count == 1) continue;
                     const eq_pivot_state_i = eq_classes[eqp.begin].state;
                     const eq_pivot_state = self.states.items[eq_pivot_state_i];
-                    for (dt_partitions) |dtp| {
-                        var new_group_i: ?u32 = null;
+                    var eq_i_left: std.ArrayListUnmanaged(usize) = .{};
+                    defer eq_i_left.deinit(self.allocator);
+                    for (eqp.begin + 1..eqp.begin + eqp.count) |eq_i| try eq_i_left.append(self.allocator, eq_i);
+                    for (dt_partitions, 0..) |dtp, dtp_i| {
                         var pivot_to_state: u32 = undefined;
                         switch (dtp) {
                             .none => unreachable,
@@ -999,8 +1001,9 @@ pub const RegexFSM = struct {
                                 pivot_to_state = trlist[0].to;
                             },
                         }
-                        for (eqp.begin + 1..eqp.begin + eqp.count) |cmp_eq_i| {
-                            if (eq_classes[eqp.begin].group != eq_classes[cmp_eq_i].group) continue; //Partition only unedited groups.
+                        var eq_i_left_i: usize = 0;
+                        while (eq_i_left_i < eq_i_left.items.len) {
+                            const cmp_eq_i = eq_i_left.items[eq_i_left_i];
                             const eq_cmp_state_i = eq_classes[cmp_eq_i].state;
                             const eq_cmp_state = self.states.items[eq_cmp_state_i];
                             var cmp_to_state: u32 = undefined;
@@ -1015,16 +1018,50 @@ pub const RegexFSM = struct {
                                     std.debug.assert(trlist.len == 1);
                                     cmp_to_state = trlist[0].to;
                                 },
-                            } //Split into new group if pointing to different groups.
+                            }
                             if (state_to_group.get(cmp_to_state).? != state_to_group.get(pivot_to_state).?) {
                                 has_changed = true;
-                                if (new_group_i == null) {
-                                    new_group_i = group_i;
+                                var recently_added_group_it = recently_added_group.iterator();
+                                while (recently_added_group_it.next()) |kv| {
+                                    const recent_state_i = kv.value_ptr.*;
+                                    const recent_state = self.states.items[recent_state_i];
+                                    if (recent_state.accept != eq_cmp_state.accept) continue;
+                                    const recent_group = kv.key_ptr.*;
+                                    if (recent_group == state_to_group.get(eq_pivot_state_i).?) continue;
+                                    for (dt_partitions[0..dtp_i]) |dtp2| { //Only compare each recently_added_groups from 0 to the last dt_partition.
+                                        var recent_to_state: u32 = undefined;
+                                        switch (dtp2) {
+                                            .none => unreachable,
+                                            .unicode, .char => |wc| {
+                                                cmp_to_state = eq_cmp_state.to_state(wc);
+                                                recent_to_state = recent_state.to_state(wc);
+                                            },
+                                            .range => |r| {
+                                                const trlist = try eq_cmp_state.to_states(self.allocator, r);
+                                                defer self.allocator.free(trlist);
+                                                std.debug.assert(trlist.len == 1);
+                                                const trlist2 = try recent_state.to_states(self.allocator, r);
+                                                defer self.allocator.free(trlist2);
+                                                std.debug.assert(trlist2.len == 1);
+                                                cmp_to_state = trlist[0].to;
+                                                recent_to_state = trlist2[0].to;
+                                            },
+                                        }
+                                        if (state_to_group.get(cmp_to_state).? != state_to_group.get(recent_to_state).?) break;
+                                    } else {
+                                        eq_classes[cmp_eq_i].group = recent_group;
+                                        try recently_changed_groups.append(self.allocator, .{ .state = eq_cmp_state_i, .group = recent_group });
+                                        _ = eq_i_left.swapRemove(eq_i_left_i);
+                                        break;
+                                    }
+                                } else {
+                                    eq_classes[cmp_eq_i].group = group_i;
+                                    try recently_changed_groups.append(self.allocator, .{ .state = eq_cmp_state_i, .group = group_i });
+                                    _ = eq_i_left.swapRemove(eq_i_left_i);
+                                    try recently_added_group.putNoClobber(self.allocator, group_i, eq_cmp_state_i);
                                     group_i += 1;
                                 }
-                                eq_classes[cmp_eq_i].group = new_group_i.?; //Change state_to_group after loop ends for all keys/states.
-                                try recently_changed_groups.append(self.allocator, .{ .state = eq_cmp_state_i, .group = new_group_i.? });
-                            }
+                            } else eq_i_left_i += 1;
                         }
                     }
                 }
