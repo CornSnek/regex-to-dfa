@@ -39,181 +39,181 @@ pub fn Range(comptime IntT: type) type {
         }
     };
 }
-test "Range(u16) intersect_split contined in middle" {
-    const r1: Range(u16) = .{ .min = 2, .max = 10 };
-    const r2: Range(u16) = .{ .min = 5, .max = 6 };
+test "Range(u21) intersect_split contined in middle" {
+    const r1: Range(u21) = .{ .min = 2, .max = 10 };
+    const r2: Range(u21) = .{ .min = 5, .max = 6 };
     try std.testing.expectEqual(@as(
-        ?Range(u16).RangeSplit,
+        ?Range(u21).RangeSplit,
         .{ .i = .{ .min = 5, .max = 6 }, .l = .{ .min = 2, .max = 4 }, .u = .{ .min = 7, .max = 10 } },
     ), r1.intersect_split(r2));
 }
-test "Range(u16) union_split one contained in middle" {
-    const r1: Range(u16) = .{ .min = 2, .max = 10 };
-    const r2: Range(u16) = .{ .min = 5, .max = 6 };
+test "Range(u21) union_split one contained in middle" {
+    const r1: Range(u21) = .{ .min = 2, .max = 10 };
+    const r2: Range(u21) = .{ .min = 5, .max = 6 };
     try std.testing.expectEqual(@as(
-        ?Range(u16).RangeSplit,
+        ?Range(u21).RangeSplit,
         .{ .i = .{ .min = 5, .max = 6 }, .l = .{ .min = 2, .max = 4 }, .u = .{ .min = 7, .max = 10 } },
     ), r1.union_split(r2));
     try std.testing.expectEqual(r1.union_split(r2), r2.union_split(r1));
 }
-test "Range(u16) intersect_split union_split equal" {
-    const r1: Range(u16) = .{ .min = 2, .max = 10 };
-    const r2: Range(u16) = .{ .min = 2, .max = 10 };
+test "Range(u21) intersect_split union_split equal" {
+    const r1: Range(u21) = .{ .min = 2, .max = 10 };
+    const r2: Range(u21) = .{ .min = 2, .max = 10 };
     try std.testing.expectEqual(@as(
-        ?Range(u16).RangeSplit,
+        ?Range(u21).RangeSplit,
         .{ .i = .{ .min = 2, .max = 10 }, .l = null, .u = null },
     ), r1.intersect_split(r2));
     try std.testing.expectEqual(r1.intersect_split(r2), r1.union_split(r2));
     try std.testing.expectEqual(r1.union_split(r2), r2.union_split(r1));
 }
-test "Range(u16) intersect_split whole range" {
-    const r1: Range(u16) = .{ .min = 2, .max = 10 };
-    const r2: Range(u16) = .{ .min = 0, .max = 12 };
+test "Range(u21) intersect_split whole range" {
+    const r1: Range(u21) = .{ .min = 2, .max = 10 };
+    const r2: Range(u21) = .{ .min = 0, .max = 12 };
     try std.testing.expectEqual(@as(
-        ?Range(u16).RangeSplit,
+        ?Range(u21).RangeSplit,
         .{ .i = .{ .min = 2, .max = 10 }, .l = null, .u = null },
     ), r1.intersect_split(r2));
 }
-test "Range(u16) intersect_split contained left" {
-    const r1: Range(u16) = .{ .min = 2, .max = 10 };
-    const r2: Range(u16) = .{ .min = 0, .max = 3 };
+test "Range(u21) intersect_split contained left" {
+    const r1: Range(u21) = .{ .min = 2, .max = 10 };
+    const r2: Range(u21) = .{ .min = 0, .max = 3 };
     try std.testing.expectEqual(@as(
-        ?Range(u16).RangeSplit,
+        ?Range(u21).RangeSplit,
         .{ .i = .{ .min = 2, .max = 3 }, .l = null, .u = .{ .min = 4, .max = 10 } },
     ), r1.intersect_split(r2));
 }
-test "Range(u16) union_split contained left" {
-    const r1: Range(u16) = .{ .min = 2, .max = 10 };
-    const r2: Range(u16) = .{ .min = 0, .max = 3 };
+test "Range(u21) union_split contained left" {
+    const r1: Range(u21) = .{ .min = 2, .max = 10 };
+    const r2: Range(u21) = .{ .min = 0, .max = 3 };
     try std.testing.expectEqual(@as(
-        ?Range(u16).RangeSplit,
+        ?Range(u21).RangeSplit,
         .{ .i = .{ .min = 2, .max = 3 }, .l = .{ .min = 0, .max = 1 }, .u = .{ .min = 4, .max = 10 } },
     ), r1.union_split(r2));
     try std.testing.expectEqual(r1.union_split(r2), r2.union_split(r1));
 }
-test "Range(u16) intersect_split contained right" {
-    const r1: Range(u16) = .{ .min = 2, .max = 10 };
-    const r2: Range(u16) = .{ .min = 9, .max = 12 };
+test "Range(u21) intersect_split contained right" {
+    const r1: Range(u21) = .{ .min = 2, .max = 10 };
+    const r2: Range(u21) = .{ .min = 9, .max = 12 };
     try std.testing.expectEqual(@as(
-        ?Range(u16).RangeSplit,
+        ?Range(u21).RangeSplit,
         .{ .i = .{ .min = 9, .max = 10 }, .l = .{ .min = 2, .max = 8 }, .u = null },
     ), r1.intersect_split(r2));
 }
-test "Range(u16) union_split contained right" {
-    const r1: Range(u16) = .{ .min = 2, .max = 10 };
-    const r2: Range(u16) = .{ .min = 9, .max = 12 };
+test "Range(u21) union_split contained right" {
+    const r1: Range(u21) = .{ .min = 2, .max = 10 };
+    const r2: Range(u21) = .{ .min = 9, .max = 12 };
     try std.testing.expectEqual(@as(
-        ?Range(u16).RangeSplit,
+        ?Range(u21).RangeSplit,
         .{ .i = .{ .min = 9, .max = 10 }, .l = .{ .min = 2, .max = 8 }, .u = .{ .min = 11, .max = 12 } },
     ), r1.union_split(r2));
     try std.testing.expectEqual(r1.union_split(r2), r2.union_split(r1));
 }
-test "Range(u16) intersect_split union_split none at left side" {
-    const r1: Range(u16) = .{ .min = 2, .max = 10 };
-    const r2: Range(u16) = .{ .min = 0, .max = 1 };
+test "Range(u21) intersect_split union_split none at left side" {
+    const r1: Range(u21) = .{ .min = 2, .max = 10 };
+    const r2: Range(u21) = .{ .min = 0, .max = 1 };
     try std.testing.expectEqual(@as(
-        ?Range(u16).RangeSplit,
+        ?Range(u21).RangeSplit,
         null,
     ), r1.intersect_split(r2));
     try std.testing.expectEqual(r1.intersect_split(r2), r1.union_split(r2));
     try std.testing.expectEqual(r1.union_split(r2), r2.union_split(r1));
 }
-test "Range(u16) intersect_split union_split none at right side" {
-    const r1: Range(u16) = .{ .min = 2, .max = 10 };
-    const r2 = Range(u16){ .min = 11, .max = 20 };
+test "Range(u21) intersect_split union_split none at right side" {
+    const r1: Range(u21) = .{ .min = 2, .max = 10 };
+    const r2 = Range(u21){ .min = 11, .max = 20 };
     try std.testing.expectEqual(@as(
-        ?Range(u16).RangeSplit,
+        ?Range(u21).RangeSplit,
         null,
     ), r1.intersect_split(r2));
     try std.testing.expectEqual(r1.intersect_split(r2), r1.union_split(r2));
     try std.testing.expectEqual(r1.union_split(r2), r2.union_split(r1));
 }
-test "Range(u16) intersect_split one number" {
-    const r1: Range(u16) = .{ .min = 2, .max = 10 };
-    const r2: Range(u16) = .{ .min = 5, .max = 5 };
+test "Range(u21) intersect_split one number" {
+    const r1: Range(u21) = .{ .min = 2, .max = 10 };
+    const r2: Range(u21) = .{ .min = 5, .max = 5 };
     try std.testing.expectEqual(@as(
-        ?Range(u16).RangeSplit,
+        ?Range(u21).RangeSplit,
         .{ .i = .{ .min = 5, .max = 5 }, .l = .{ .min = 2, .max = 4 }, .u = .{ .min = 6, .max = 10 } },
     ), r1.intersect_split(r2));
     try std.testing.expectEqual(r1.intersect_split(r2), r1.union_split(r2));
     try std.testing.expectEqual(r1.union_split(r2), r2.union_split(r1));
 }
-test "Range(u16) intersect_split at minimum" {
-    const r1: Range(u16) = .{ .min = 0, .max = 5 };
-    const r2: Range(u16) = .{ .min = 0, .max = 10 };
+test "Range(u21) intersect_split at minimum" {
+    const r1: Range(u21) = .{ .min = 0, .max = 5 };
+    const r2: Range(u21) = .{ .min = 0, .max = 10 };
     try std.testing.expectEqual(@as(
-        ?Range(u16).RangeSplit,
+        ?Range(u21).RangeSplit,
         .{ .i = .{ .min = 0, .max = 5 }, .l = null, .u = null },
     ), r1.intersect_split(r2));
 }
-test "Range(u16) union_split at minimum" {
-    const r1: Range(u16) = .{ .min = 0, .max = 5 };
-    const r2: Range(u16) = .{ .min = 0, .max = 10 };
+test "Range(u21) union_split at minimum" {
+    const r1: Range(u21) = .{ .min = 0, .max = 5 };
+    const r2: Range(u21) = .{ .min = 0, .max = 10 };
     try std.testing.expectEqual(@as(
-        ?Range(u16).RangeSplit,
+        ?Range(u21).RangeSplit,
         .{ .i = .{ .min = 0, .max = 5 }, .l = null, .u = .{ .min = 6, .max = 10 } },
     ), r1.union_split(r2));
     try std.testing.expectEqual(r1.union_split(r2), r2.union_split(r1));
 }
-test "Range(u16) intersect_split at maximum" {
-    const r1: Range(u16) = .{ .min = std.math.maxInt(u16) - 3, .max = std.math.maxInt(u16) };
-    const r2: Range(u16) = .{ .min = std.math.maxInt(u16) - 10, .max = std.math.maxInt(u16) };
+test "Range(u21) intersect_split at maximum" {
+    const r1: Range(u21) = .{ .min = std.math.maxInt(u21) - 3, .max = std.math.maxInt(u21) };
+    const r2: Range(u21) = .{ .min = std.math.maxInt(u21) - 10, .max = std.math.maxInt(u21) };
     try std.testing.expectEqual(@as(
-        ?Range(u16).RangeSplit,
-        .{ .i = .{ .min = std.math.maxInt(u16) - 3, .max = std.math.maxInt(u16) }, .l = null, .u = null },
+        ?Range(u21).RangeSplit,
+        .{ .i = .{ .min = std.math.maxInt(u21) - 3, .max = std.math.maxInt(u21) }, .l = null, .u = null },
     ), r1.intersect_split(r2));
 }
-test "Range(u16) union_split at maximum" {
-    const r1: Range(u16) = .{ .min = std.math.maxInt(u16) - 3, .max = std.math.maxInt(u16) };
-    const r2: Range(u16) = .{ .min = std.math.maxInt(u16) - 10, .max = std.math.maxInt(u16) };
+test "Range(u21) union_split at maximum" {
+    const r1: Range(u21) = .{ .min = std.math.maxInt(u21) - 3, .max = std.math.maxInt(u21) };
+    const r2: Range(u21) = .{ .min = std.math.maxInt(u21) - 10, .max = std.math.maxInt(u21) };
     try std.testing.expectEqual(@as(
-        ?Range(u16).RangeSplit,
+        ?Range(u21).RangeSplit,
         .{
-            .i = .{ .min = std.math.maxInt(u16) - 3, .max = std.math.maxInt(u16) },
-            .l = .{ .min = std.math.maxInt(u16) - 10, .max = std.math.maxInt(u16) - 4 },
+            .i = .{ .min = std.math.maxInt(u21) - 3, .max = std.math.maxInt(u21) },
+            .l = .{ .min = std.math.maxInt(u21) - 10, .max = std.math.maxInt(u21) - 4 },
             .u = null,
         },
     ), r1.union_split(r2));
     try std.testing.expectEqual(r1.union_split(r2), r2.union_split(r1));
 }
-test "Range(u16) union_merge" {
-    const r1: Range(u16) = .{ .min = 1, .max = 2 };
-    const r2: Range(u16) = .{ .min = 3, .max = 4 };
-    const r3: Range(u16) = .{ .min = 2, .max = 3 };
-    const r4: Range(u16) = .{ .min = 4, .max = 5 };
+test "Range(u21) union_merge" {
+    const r1: Range(u21) = .{ .min = 1, .max = 2 };
+    const r2: Range(u21) = .{ .min = 3, .max = 4 };
+    const r3: Range(u21) = .{ .min = 2, .max = 3 };
+    const r4: Range(u21) = .{ .min = 4, .max = 5 };
     try std.testing.expectEqual(@as(
-        ?Range(u16),
+        ?Range(u21),
         .{ .min = 1, .max = 4 },
     ), r1.union_merge(r2));
     try std.testing.expectEqual(r1.union_merge(r2), r2.union_merge(r1));
     try std.testing.expectEqual(@as(
-        ?Range(u16),
+        ?Range(u21),
         .{ .min = 1, .max = 3 },
     ), r1.union_merge(r3));
     try std.testing.expectEqual(r1.union_merge(r3), r3.union_merge(r1));
     try std.testing.expectEqual(@as(
-        ?Range(u16),
+        ?Range(u21),
         null,
     ), r1.union_merge(r4));
     try std.testing.expectEqual(r1.union_merge(r4), r4.union_merge(r1));
 }
-test "Range(u16) union_merge at maximum" {
-    const r1: Range(u16) = .{ .min = std.math.maxInt(u16) - 1, .max = std.math.maxInt(u16) };
-    const r2: Range(u16) = .{ .min = std.math.maxInt(u16) - 3, .max = std.math.maxInt(u16) - 2 };
-    const r3: Range(u16) = .{ .min = std.math.maxInt(u16) - 2, .max = std.math.maxInt(u16) - 1 };
-    const r4: Range(u16) = .{ .min = std.math.maxInt(u16) - 4, .max = std.math.maxInt(u16) - 3 };
+test "Range(u21) union_merge at maximum" {
+    const r1: Range(u21) = .{ .min = std.math.maxInt(u21) - 1, .max = std.math.maxInt(u21) };
+    const r2: Range(u21) = .{ .min = std.math.maxInt(u21) - 3, .max = std.math.maxInt(u21) - 2 };
+    const r3: Range(u21) = .{ .min = std.math.maxInt(u21) - 2, .max = std.math.maxInt(u21) - 1 };
+    const r4: Range(u21) = .{ .min = std.math.maxInt(u21) - 4, .max = std.math.maxInt(u21) - 3 };
     try std.testing.expectEqual(@as(
-        ?Range(u16),
-        .{ .min = std.math.maxInt(u16) - 3, .max = std.math.maxInt(u16) },
+        ?Range(u21),
+        .{ .min = std.math.maxInt(u21) - 3, .max = std.math.maxInt(u21) },
     ), r1.union_merge(r2));
     try std.testing.expectEqual(r1.union_merge(r2), r2.union_merge(r1));
     try std.testing.expectEqual(@as(
-        ?Range(u16),
-        .{ .min = std.math.maxInt(u16) - 2, .max = std.math.maxInt(u16) },
+        ?Range(u21),
+        .{ .min = std.math.maxInt(u21) - 2, .max = std.math.maxInt(u21) },
     ), r1.union_merge(r3));
     try std.testing.expectEqual(r1.union_merge(r3), r3.union_merge(r1));
     try std.testing.expectEqual(@as(
-        ?Range(u16),
+        ?Range(u21),
         null,
     ), r1.union_merge(r4));
     try std.testing.expectEqual(r1.union_merge(r4), r4.union_merge(r1));

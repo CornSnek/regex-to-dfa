@@ -70,6 +70,7 @@ const regex_patterns_obj = {
   "IP Version 4 (IPv4)": "((25[0-5]|(2[0-4]|1\\d|[1-9]|)\\d)\\.){3}(25[0-5]|(2[0-4]|1\\d|[1-9]|)\\d)",
   "IP Version 6 (IPv6), leading zeroes required and :: zeroes compression disallowed": "([\\dA-Fa-f]{4}:){7}([\\dA-Fa-f]{4})",
   "IP Version 6 (IPv6), leading zeroes optional and :: zeroes compression allowed": "(([\\da-fA-F]{1,4}:){7,7}[\\da-fA-F]{1,4}|([\\da-fA-F]{1,4}:){1,7}:|([\\da-fA-F]{1,4}:){1,6}:[\\da-fA-F]{1,4}|([\\da-fA-F]{1,4}:){1,5}(:[\\da-fA-F]{1,4}){1,2}|([\\da-fA-F]{1,4}:){1,4}(:[\\da-fA-F]{1,4}){1,3}|([\\da-fA-F]{1,4}:){1,3}(:[\\da-fA-F]{1,4}){1,4}|([\\da-fA-F]{1,4}:){1,2}(:[\\da-fA-F]{1,4}){1,5}|[\\da-fA-F]{1,4}:((:[\\da-fA-F]{1,4}){1,6})|:((:[\\da-fA-F]{1,4}){1,7}|:)|[Ff][Ee]80:(:[\\da-fA-F]{0,4}){0,4}%[\\da-zA-Z]+)",
+  "Binary string of a number divisible by 3": "(0|1(01*0)*1)*",
 };
 let compile_button;
 let cancel_compilation;
@@ -152,7 +153,7 @@ function parse_states(state_arr) {
       div_state.innerHTML = `${state_num} <em class="mark error">Error</em>`;
       const div_transition = document.createElement("div");
       td_transition.appendChild(div_transition);
-      div_transition.innerHTML = `[ <em class="mark">\\u0000</em> - <em class="mark">\\uffff</em> ] &#x2192; 0`;
+      div_transition.innerHTML = `[ <em class="mark">\\u0000</em> - <em class="mark">\\u10ffff</em> ] &#x2192; 0`;
       const state_f = { to_state: 0 };
       div_transition.onclick = move_to_state.bind(state_f);
     } else {
@@ -174,12 +175,12 @@ function parse_states(state_arr) {
             break;
           case 1:
             const single_p = state_arr[arr_i++];
-            div_transition.innerHTML = `${char_or_unicode(single_p)}`;
+            div_transition.innerHTML = `${char_or_unicode("mark",single_p)}`;
             break;
           case 2:
             const min = state_arr[arr_i++];
             const max = state_arr[arr_i++];
-            div_transition.innerHTML = `[ ${char_or_unicode(min)} - ${char_or_unicode(max)} ]`;
+            div_transition.innerHTML = `[ ${char_or_unicode("mark",min)} - ${char_or_unicode("mark",max)} ]`;
             break;
           default:
             console.error("Incorrectly reading transition bytes in code.");
@@ -199,11 +200,11 @@ function move_to_state() {
   html_to_state.classList.add('highlight-state');
   setTimeout(() => html_to_state.classList.remove('highlight-state'), 500);
 }
-function char_or_unicode(num) {
+function char_or_unicode(mark_type,num) {
   if (32 <= num && num <= 126) {
-    return `<em class="mark">${String.fromCharCode(num)}</em>`
+    return `<em class=\"${mark_type}\">${String.fromCharCode(num)}</em>`
   } else {
-    return `<em class="mark">\\u${num.toString(16).padStart(4, '0')}</em>`;
+    return `<em class=\"${mark_type}\">\\u${num.toString(16).padStart(6, '0')}</em>`;
   }
 }
 function dfa_min_and_test_regex() {
@@ -224,7 +225,9 @@ function test_regex(tgs) {
   const fs_accept = tgs[1];
   const tgs_byte_count = tgs[2];
   var tgs_i = 3;
-  var key_i = 0;
+  var ch_i = 0;
+  const cpts=Array.from(test_regex_e.value, ch=>ch.codePointAt(0));
+  console.log(cpts);
   while (tgs_i - 3 < tgs_byte_count) {
     const tr_state = tgs[tgs_i++];
     const this_tr_div = document.createElement("div");
@@ -234,10 +237,10 @@ function test_regex(tgs) {
     const is_accept = tgs[tgs_i++];
     if (tr_state == 0) {
       this_tr_div.classList.add("error");
-      this_tr_div.innerHTML = `<em class="mark error">${test_regex_e.value[key_i++]}</em> &#x2192; 0`;
+      this_tr_div.innerHTML = `${char_or_unicode("mark error",cpts[ch_i++])} &#x2192; 0`;
     } else {
       if (is_accept) this_tr_div.classList.add("accept");
-      this_tr_div.innerHTML = `<em class="mark ${(is_accept) ? "accept" : ""}">${test_regex_e.value[key_i++]}</em> &#x2192; ${tr_state}`;
+      this_tr_div.innerHTML = `${char_or_unicode((is_accept) ? "mark accept" : "mark",cpts[ch_i++])} &#x2192; ${tr_state}`;
     }
   }
   const final_state = document.createElement("div");

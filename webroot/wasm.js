@@ -27,13 +27,13 @@ function regex_to_dfa(str) {
 }
 function test_string(str) {
   if (str.length == 0) {
-    Exports.TransitionGraphU8(0, 0);
+    Exports.TransitionGraph(0, 0);
   } else {
     const enc_str = TE.encode(str);
     const alloc_mem = Exports.WasmAlloc(enc_str.byteLength);
     const mem_view = new Uint8Array(Exports.memory.buffer, alloc_mem, enc_str.byteLength);
     mem_view.set(enc_str);
-    Exports.TransitionGraphU8(alloc_mem, enc_str.byteLength);
+    Exports.TransitionGraph(alloc_mem, enc_str.byteLength);
     Exports.WasmFree(alloc_mem);
   }
   const tgs_view = new Uint32Array(Exports.memory.buffer, Exports.TransitionGraphString.value, 1);

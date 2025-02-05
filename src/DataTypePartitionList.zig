@@ -41,8 +41,8 @@ pub fn add(self: *DataTypePartitionList, allocator: std.mem.Allocator, value: Da
                     },
                     .range => |r| {
                         var has_partitioned: bool = false;
-                        var leftover_l: ?Range(u16) = null; //Once partitioned, check any leftover ranges with other DataTypes around mid_i if it can be further partitioned.
-                        var leftover_u: ?Range(u16) = null;
+                        var leftover_l: ?Range(u21) = null; //Once partitioned, check any leftover ranges with other DataTypes around mid_i if it can be further partitioned.
+                        var leftover_u: ?Range(u21) = null;
                         switch (self.list.items[mid_i]) {
                             .none => {},
                             .unicode, .char => |wc2| if (r.intersect_split(.{ .min = wc2, .max = wc2 })) |range_split| {
@@ -173,8 +173,8 @@ pub fn delete(self: *DataTypePartitionList, allocator: std.mem.Allocator, value:
                 },
                 .range => |r| {
                     var has_partitioned: bool = false;
-                    var leftover_l: ?Range(u16) = null;
-                    var leftover_u: ?Range(u16) = null;
+                    var leftover_l: ?Range(u21) = null;
+                    var leftover_u: ?Range(u21) = null;
                     switch (self.list.items[mid_i]) {
                         .none => {},
                         .unicode, .char => |wc2| if (r.intersect_split(.{ .min = wc2, .max = wc2 })) |range_split| {

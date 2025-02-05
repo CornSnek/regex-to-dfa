@@ -9,7 +9,7 @@ const ESC = logger.ESC;
 const os_log_debug = logger.os_log_debug;
 const TokenTag = union(enum) {
     char: u8,
-    unicode: u16,
+    unicode: u21,
     quant_exact: u32,
     quant_lte: u32,
     quant_gte: u32,
@@ -61,125 +61,142 @@ pub const RegexLexer = struct {
     pub const RegexTokenArray = std.ArrayList(Token);
     token_array: RegexTokenArray,
     str: []const u8,
-    pub fn init(allocator: std.mem.Allocator, regex_str: []const u8) !RegexLexer {
+    pub fn init_utf8(allocator: std.mem.Allocator, regex_str: []const u8) !RegexLexer {
         var read_state: ReadState = .begin;
         var token_array: RegexTokenArray = RegexTokenArray.init(allocator);
         errdefer token_array.deinit();
-        var i: u32 = 0;
-        var esc_last_read_state: ReadState = undefined; //.escaped has two states to go into.
+        var ch_i: u32 = 0; //Determines the character offset to print errors of the utf8 string.
+        var read_i: u32 = 0; //Due to utf8 variable bytes, determines the slice in regex_str to read numbers in.
+        var esc_last_read_state: ReadState = undefined; //Pushdown automata where .escaped has two states to go into.
         var p_depth: u32 = 0;
-        while (i < regex_str.len) : (i += 1) {
-            const c = regex_str[i];
+        const regex_utf8_view = try std.unicode.Utf8View.init(regex_str);
+        var utf8_it = regex_utf8_view.iterator();
+        while (utf8_it.nextCodepointSlice()) |cpt_sl| {
+            const char = try std.unicode.utf8Decode(cpt_sl);
             switch (read_state) {
                 .begin => {
-                    switch (c) {
+                    switch (char) {
                         '(' => {
-                            try token_array.append(.{ .tt = .@"(", .begin = i, .end = i });
+                            try token_array.append(.{ .tt = .@"(", .begin = ch_i, .end = ch_i });
                             p_depth += 1;
                         },
                         ')' => {
-                            try token_array.append(.{ .tt = .@")", .begin = i, .end = i });
+                            try token_array.append(.{ .tt = .@")", .begin = ch_i, .end = ch_i });
                             if (p_depth == 0) {
                                 std.log.err("Unequal number of unescaped '(' and ')' tokens. Too many ')'.\n", .{});
                                 return error.LexerError;
                             }
                             p_depth -= 1;
                         },
-                        '|' => try token_array.append(.{ .tt = .@"|", .begin = i, .end = i }),
-                        '?' => try token_array.append(.{ .tt = .@"?", .begin = i, .end = i }),
-                        '*' => try token_array.append(.{ .tt = .@"*", .begin = i, .end = i }),
-                        '+' => try token_array.append(.{ .tt = .@"+", .begin = i, .end = i }),
-                        '{' => read_state = .{ .quant_lhs = regex_str[i + 1 .. i + 1] }, //Set as 0 length pointing to the next character.
+                        '|' => try token_array.append(.{ .tt = .@"|", .begin = ch_i, .end = ch_i }),
+                        '?' => try token_array.append(.{ .tt = .@"?", .begin = ch_i, .end = ch_i }),
+                        '*' => try token_array.append(.{ .tt = .@"*", .begin = ch_i, .end = ch_i }),
+                        '+' => try token_array.append(.{ .tt = .@"+", .begin = ch_i, .end = ch_i }),
+                        '{' => read_state = .{ .quant_lhs = regex_str[read_i + 1 .. read_i + 1] }, //Set as 0 length pointing to the next character.
                         '\\' => {
                             esc_last_read_state = read_state;
                             read_state = .{ .escaped = false };
                         },
                         '[' => {
-                            try token_array.append(.{ .tt = .@"[", .begin = i, .end = i });
-                            read_state = .{ .set = @intCast(i + 1) };
+                            try token_array.append(.{ .tt = .@"[", .begin = ch_i, .end = ch_i });
+                            read_state = .{ .set = @intCast(read_i + 1) };
                         },
-                        '.' => try token_array.append(.{ .tt = .{ .char_set = .@"." }, .begin = i, .end = i }),
+                        '.' => try token_array.append(.{ .tt = .{ .char_set = .@"." }, .begin = ch_i, .end = ch_i }),
                         ']' => {
-                            highlight_error(regex_str, i, i);
+                            highlight_error(regex_str, ch_i, ch_i);
                             std.log.err("Stray unescaped ']' found outside set\n", .{});
                             return error.LexerError;
                         },
-                        else => try token_array.append(.{ .tt = .{ .char = c }, .begin = i, .end = i }),
+                        else => {
+                            if (char >= 0 and char <= 0xff) {
+                                try token_array.append(.{ .tt = .{ .char = @intCast(char) }, .begin = ch_i, .end = ch_i });
+                            } else {
+                                try token_array.append(.{ .tt = .{ .unicode = @intCast(char) }, .begin = ch_i, .end = ch_i });
+                            }
+                        },
                     }
                 },
                 .set => |set_begin_i| {
-                    switch (c) {
+                    switch (char) {
                         '\\' => {
                             esc_last_read_state = read_state;
                             read_state = .{ .escaped = true };
                         },
-                        '^' => if (set_begin_i != i) try token_array.append(.{ .tt = .{ .char = '^' }, .begin = i, .end = i }) else try token_array.append(.{ .tt = .@"set^", .begin = i, .end = i }),
-                        '-' => try token_array.append(.{ .tt = .@"-", .begin = i, .end = i }),
+                        '^' => if (set_begin_i != ch_i) try token_array.append(.{ .tt = .{ .char = '^' }, .begin = ch_i, .end = ch_i }) else try token_array.append(.{ .tt = .@"set^", .begin = ch_i, .end = ch_i }),
+                        '-' => try token_array.append(.{ .tt = .@"-", .begin = ch_i, .end = ch_i }),
                         '[' => {
-                            highlight_error(regex_str, i, i);
+                            highlight_error(regex_str, ch_i, ch_i);
                             std.log.err("Stray unescaped '[' found inside set\n", .{});
                             return error.LexerError;
                         },
                         ']' => {
-                            if (i == set_begin_i) {
-                                highlight_error(regex_str, set_begin_i - 1, i);
+                            if (ch_i == set_begin_i) {
+                                highlight_error(regex_str, set_begin_i - 1, ch_i);
                                 std.log.err("Empty set is disallowed (all states would point to the 0 error state)\n", .{});
                                 return error.LexerError;
                             }
-                            try token_array.append(.{ .tt = .@"]", .begin = i, .end = i });
+                            try token_array.append(.{ .tt = .@"]", .begin = ch_i, .end = ch_i });
                             read_state = .begin;
                         },
-                        else => try token_array.append(.{ .tt = .{ .char = c }, .begin = i, .end = i }),
+                        else => {
+                            if (char >= 0 and char <= 0xff) {
+                                try token_array.append(.{ .tt = .{ .char = @intCast(char) }, .begin = ch_i, .end = ch_i });
+                            } else {
+                                try token_array.append(.{ .tt = .{ .unicode = @intCast(char) }, .begin = ch_i, .end = ch_i });
+                            }
+                        },
                     }
                 },
                 .escaped => |has_minus| {
-                    switch (c) {
-                        '0' => try token_array.append(.{ .tt = .{ .char = 0 }, .begin = i - 1, .end = i }),
-                        'v' => try token_array.append(.{ .tt = .{ .char = 11 }, .begin = i - 1, .end = i }),
-                        'f' => try token_array.append(.{ .tt = .{ .char = 12 }, .begin = i - 1, .end = i }),
-                        'r' => try token_array.append(.{ .tt = .{ .char = '\r' }, .begin = i - 1, .end = i }),
-                        't' => try token_array.append(.{ .tt = .{ .char = '\t' }, .begin = i - 1, .end = i }),
-                        'n' => try token_array.append(.{ .tt = .{ .char = '\n' }, .begin = i - 1, .end = i }),
+                    switch (char) {
+                        '0' => try token_array.append(.{ .tt = .{ .char = 0 }, .begin = ch_i - 1, .end = ch_i }),
+                        'v' => try token_array.append(.{ .tt = .{ .char = 11 }, .begin = ch_i - 1, .end = ch_i }),
+                        'f' => try token_array.append(.{ .tt = .{ .char = 12 }, .begin = ch_i - 1, .end = ch_i }),
+                        'r' => try token_array.append(.{ .tt = .{ .char = '\r' }, .begin = ch_i - 1, .end = ch_i }),
+                        't' => try token_array.append(.{ .tt = .{ .char = '\t' }, .begin = ch_i - 1, .end = ch_i }),
+                        'n' => try token_array.append(.{ .tt = .{ .char = '\n' }, .begin = ch_i - 1, .end = ch_i }),
                         'x' => {
-                            if (i >= regex_str.len - 2) {
+                            if (ch_i >= regex_str.len - 2) {
                                 std.log.err("\\x requires 2 hexadecimal characters to parse\n", .{});
                                 return error.LexerError;
                             }
-                            const num = try std.fmt.parseInt(u8, regex_str[i + 1 .. i + 3], 16);
-                            try token_array.append(.{ .tt = .{ .char = num }, .begin = i - 1, .end = i + 2 });
-                            i += 2;
+                            const num = try std.fmt.parseInt(u8, regex_str[read_i + 1 .. read_i + 3], 16);
+                            try token_array.append(.{ .tt = .{ .char = num }, .begin = ch_i - 1, .end = ch_i + 2 });
+                            ch_i += 2;
+                            read_i += 2;
                         },
                         'u' => {
-                            if (i >= regex_str.len - 4) {
+                            if (ch_i >= regex_str.len - 4) {
                                 std.log.err("\\u requires 4 hexadecimal characters to parse\n", .{});
                                 return error.LexerError;
                             }
-                            const num = try std.fmt.parseInt(u16, regex_str[i + 1 .. i + 5], 16);
-                            try token_array.append(.{ .tt = .{ .unicode = num }, .begin = i - 1, .end = i + 4 });
-                            i += 4;
+                            const num = try std.fmt.parseInt(u16, regex_str[read_i + 1 .. read_i + 5], 16);
+                            try token_array.append(.{ .tt = .{ .unicode = num }, .begin = ch_i - 1, .end = ch_i + 4 });
+                            ch_i += 4;
+                            read_i += 4;
                         },
-                        's' => try token_array.append(.{ .tt = .{ .char_set = .whitespace }, .begin = i - 1, .end = i }),
-                        'S' => try token_array.append(.{ .tt = .{ .char_set = .nonwhitespace }, .begin = i - 1, .end = i }),
-                        'd' => try token_array.append(.{ .tt = .{ .char_set = .digit }, .begin = i - 1, .end = i }),
-                        'D' => try token_array.append(.{ .tt = .{ .char_set = .nondigit }, .begin = i - 1, .end = i }),
-                        'w' => try token_array.append(.{ .tt = .{ .char_set = .word }, .begin = i - 1, .end = i }),
-                        'W' => try token_array.append(.{ .tt = .{ .char_set = .nonword }, .begin = i - 1, .end = i }),
-                        '+', '*', '?', '^', '$', '\\', '.', '[', ']', '{', '}', '(', ')', '|', '/' => |ch| try token_array.append(.{ .tt = .{ .char = ch }, .begin = i - 1, .end = i }),
+                        's' => try token_array.append(.{ .tt = .{ .char_set = .whitespace }, .begin = ch_i - 1, .end = ch_i }),
+                        'S' => try token_array.append(.{ .tt = .{ .char_set = .nonwhitespace }, .begin = ch_i - 1, .end = ch_i }),
+                        'd' => try token_array.append(.{ .tt = .{ .char_set = .digit }, .begin = ch_i - 1, .end = ch_i }),
+                        'D' => try token_array.append(.{ .tt = .{ .char_set = .nondigit }, .begin = ch_i - 1, .end = ch_i }),
+                        'w' => try token_array.append(.{ .tt = .{ .char_set = .word }, .begin = ch_i - 1, .end = ch_i }),
+                        'W' => try token_array.append(.{ .tt = .{ .char_set = .nonword }, .begin = ch_i - 1, .end = ch_i }),
+                        '+', '*', '?', '^', '$', '\\', '.', '[', ']', '{', '}', '(', ')', '|', '/' => |ch| try token_array.append(.{ .tt = .{ .char = @intCast(ch) }, .begin = ch_i - 1, .end = ch_i }),
                         '-' => if (has_minus) {
-                            try token_array.append(.{ .tt = .{ .char = '-' }, .begin = i - 1, .end = i });
+                            try token_array.append(.{ .tt = .{ .char = '-' }, .begin = ch_i - 1, .end = ch_i });
                         } else {
                             std.log.err("'-' is not a valid character to escape (only in sets)\n", .{});
                             return error.LexerError;
                         },
-                        else => |ch| {
-                            std.log.err("'{c}' is not a valid character to escape\n", .{ch});
+                        else => {
+                            std.log.err("'{s}' is not a valid character to escape\n", .{cpt_sl});
                             return error.LexerError;
                         },
                     }
                     read_state = esc_last_read_state;
                 },
                 .quant_lhs => |*num_str| {
-                    switch (c) {
+                    switch (char) {
                         '0'...'9' => num_str.len += 1,
                         '}' => {
                             if (num_str.len == 0) {
@@ -187,16 +204,16 @@ pub const RegexLexer = struct {
                                 return error.LexerError;
                             }
                             const num = try std.fmt.parseInt(u32, num_str.*, 10);
-                            try token_array.append(.{ .tt = .{ .quant_exact = num }, .begin = @intCast(i - num_str.len - 1), .end = i });
+                            try token_array.append(.{ .tt = .{ .quant_exact = num }, .begin = @intCast(ch_i - num_str.len - 1), .end = ch_i });
                             read_state = .begin;
                         },
                         ',' => {
                             if (num_str.len != 0) {
                                 const num = try std.fmt.parseInt(u32, num_str.*, 10);
-                                try token_array.append(.{ .tt = .{ .quant_gte = num }, .begin = @intCast(i - num_str.len - 1), .end = i });
-                                read_state = .{ .quant_rhs_with_left = regex_str[i + 1 .. i + 1] };
+                                try token_array.append(.{ .tt = .{ .quant_gte = num }, .begin = @intCast(ch_i - num_str.len - 1), .end = ch_i });
+                                read_state = .{ .quant_rhs_with_left = regex_str[read_i + 1 .. read_i + 1] };
                             } else {
-                                read_state = .{ .quant_rhs_no_left = regex_str[i + 1 .. i + 1] };
+                                read_state = .{ .quant_rhs_no_left = regex_str[read_i + 1 .. read_i + 1] };
                             }
                         },
                         else => {
@@ -206,12 +223,12 @@ pub const RegexLexer = struct {
                     }
                 },
                 .quant_rhs_with_left => |*num_str| {
-                    switch (c) {
+                    switch (char) {
                         '0'...'9' => num_str.len += 1,
                         '}' => { //For {number1,number2} or {number1,}
                             if (num_str.len != 0) {
                                 const num = try std.fmt.parseInt(u32, num_str.*, 10);
-                                try token_array.append(.{ .tt = .{ .quant_lte = num }, .begin = @intCast(i - num_str.len - 1), .end = i });
+                                try token_array.append(.{ .tt = .{ .quant_lte = num }, .begin = @intCast(ch_i - num_str.len - 1), .end = ch_i });
                             }
                             read_state = .begin;
                         },
@@ -222,12 +239,12 @@ pub const RegexLexer = struct {
                     }
                 },
                 .quant_rhs_no_left => |*num_str| {
-                    switch (c) {
+                    switch (char) {
                         '0'...'9' => num_str.len += 1,
                         '}' => { //For {,number}
                             if (num_str.len != 0) {
                                 const num = try std.fmt.parseInt(u32, num_str.*, 10);
-                                try token_array.append(.{ .tt = .{ .quant_lte = num }, .begin = @intCast(i - num_str.len - 1), .end = i });
+                                try token_array.append(.{ .tt = .{ .quant_lte = num }, .begin = @intCast(ch_i - num_str.len - 1), .end = ch_i });
                             } else {
                                 std.log.err("Numbers are required inside '{{' and '}}'\n", .{});
                                 return error.LexerError;
@@ -241,12 +258,14 @@ pub const RegexLexer = struct {
                     }
                 },
             }
+            ch_i += 1;
+            read_i += @intCast(cpt_sl.len);
         }
         if (p_depth != 0) {
             std.log.err("Unequal number of unescaped '(' and ')'. Too many '('.\n", .{});
             return error.LexerError;
         }
-        try token_array.append(.{ .tt = .eof, .begin = i, .end = i });
+        try token_array.append(.{ .tt = .eof, .begin = ch_i, .end = ch_i });
         switch (read_state) {
             .begin => return .{ .token_array = token_array, .str = regex_str },
             else => {

@@ -25,7 +25,7 @@ fn compile(regex_str: []const u8) !void {
         transition_graph = null;
         TransitionGraphString = 0;
     }
-    var lexer = try regex_engine.RegexLexer.init(allocator, regex_str);
+    var lexer = try regex_engine.RegexLexer.init_utf8(allocator, regex_str);
     defer lexer.deinit();
     const parse_tree = try regex_engine.create_parse_tree(allocator, lexer);
     defer _ = parse_tree.deinit(allocator);
@@ -33,21 +33,21 @@ fn compile(regex_str: []const u8) !void {
     try parse_tree.construct(&regex_e.?, regex_engine.RegexEngine.construct);
     wasm_print.FlushPrint();
 }
-export fn TransitionGraphU8(test_str_ptr: [*c]const u8, test_str_len: usize) void {
+export fn TransitionGraph(test_str_ptr: [*c]const u8, test_str_len: usize) void {
     const test_str_slice: []const u8 = if (test_str_ptr != 0) test_str_ptr[0..test_str_len] else &.{};
     if (regex_e) |re| {
-        transition_graph = re.fsm.get_string_state_transitions_u8(test_str_slice) catch |e| wasm_print.WasmError(e);
+        transition_graph = re.fsm.get_string_state_transitions(test_str_slice) catch |e| wasm_print.WasmError(e);
         for (transition_graph.?.list.items) |tr| {
             std.log.debug("{any}\n", .{tr});
         }
         std.log.debug("Final state: {} ({s})\n", .{ transition_graph.?.final_state, if (transition_graph.?.accept) "accepted" else "not accepted" });
-        create_transition_graph_u8_js(transition_graph.?) catch |e| wasm_print.WasmError(e);
+        create_transition_graph_js(transition_graph.?) catch |e| wasm_print.WasmError(e);
     }
     wasm_print.FlushPrint();
 }
 /// Bytes are formatted as {final_state, accept, transitions_byte_count, (Transitions) ...}
 /// (Transitions) are formatted as { tr.to, accept }
-fn create_transition_graph_u8_js(tg: regex_fsm.RegexFSM.TransitionsGraph) !void {
+fn create_transition_graph_js(tg: regex_fsm.RegexFSM.TransitionsGraph) !void {
     if (TransitionGraphString != 0) { //Free old
         wasm_jsalloc.WasmFree(@ptrCast(TransitionGraphString));
         TransitionGraphString = 0;

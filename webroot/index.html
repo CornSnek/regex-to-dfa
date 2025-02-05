@@ -14,7 +14,7 @@
 
   <div id="header-grid">
     <h1 id="title-web">RegexStateMachine <em class="mark"><a href="https://github.com/CornSnek/regex-to-dfa">GitHub Source Code</a></em></h1>
-    <div id="web-desc"><strong>Converts Regular Expressions into NFA and DFA FSMs, and Test Strings</strong></div>
+    <div id="web-desc"><strong>Converts Regular Expressions into NFA and DFA state machines</strong></div>
     <div id="error-message"></div>
     <div id="cancel-compilation-body">
       If the compilation time is taking too long, <button type="button" id="cancel-compilation" disabled>Cancel Regex Compilation</button>
@@ -26,7 +26,7 @@
         <label for="regex-patterns" class="tooltip-show">Regex Pattern Examples:<span class="tooltip-right">Selecting an
             option replaces the current Regex String and automatically compiles the Regex</span></label>
         <select id="regex-patterns"></select>
-        <label for="test-regex" class="tooltip-show">Test String<br>(ASCII Only):<span class="tooltip-right">String that will be tested
+        <label for="test-regex" class="tooltip-show">Test String:<span class="tooltip-right">String that will be tested
             by the Regex pattern and will output all of its transitions. This switches to the DFA
             Minimized option.</span></label>
         <input type="text" id="test-regex">

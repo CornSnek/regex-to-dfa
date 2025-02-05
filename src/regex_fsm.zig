@@ -13,9 +13,9 @@ test {
 pub const DataType = union(enum) {
     none: void,
     char: u8,
-    unicode: u16,
-    range: Range(u16),
-    pub fn r_or_un(range: Range(u16)) DataType {
+    unicode: u21,
+    range: Range(u21),
+    pub fn r_or_un(range: Range(u21)) DataType {
         return if (range.min != range.max) .{ .range = range } else .{ .unicode = range.min };
     }
     pub fn format(self: @This(), comptime _: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
@@ -77,13 +77,13 @@ pub const DataType = union(enum) {
     }
     ///Sort by the minimum number where .none is always the lowest.
     pub fn lt(_: void, ldt: DataType, rdt: DataType) bool {
-        const ldt_min: u16 = switch (ldt) {
+        const ldt_min: u21 = switch (ldt) {
             .char => |ch| ch,
             .unicode => |u| u,
             .range => |r| r.min,
             .none => return true,
         };
-        const rdt_min: u16 = switch (rdt) {
+        const rdt_min: u21 = switch (rdt) {
             .char => |ch| ch,
             .unicode => |u| u,
             .range => |r| r.min,
@@ -160,12 +160,12 @@ pub const Transition = struct {
             }
             no_merged_range: {
                 if (cmp_tr.to != cmp_next_tr.to) break :no_merged_range;
-                const cmp_tr_r: Range(u16) = switch (cmp_tr.dtype) {
+                const cmp_tr_r: Range(u21) = switch (cmp_tr.dtype) {
                     .none => unreachable,
                     .unicode, .char => |wc| .{ .min = wc, .max = wc },
                     .range => |r| r,
                 };
-                const cmp_next_tr_r: Range(u16) = switch (cmp_next_tr.dtype) {
+                const cmp_next_tr_r: Range(u21) = switch (cmp_next_tr.dtype) {
                     .none => unreachable,
                     .unicode, .char => |wc| .{ .min = wc, .max = wc },
                     .range => |r| r,
@@ -340,7 +340,7 @@ pub const RegexState = struct {
     id: u32,
     transitions: []Transition = &.{},
     accept: bool = false,
-    fn to_state(self: *const RegexState, wc: u16) u32 {
+    fn to_state(self: *const RegexState, wc: u21) u32 {
         for (self.transitions) |tr| {
             switch (tr.dtype) {
                 .none => continue,
@@ -351,7 +351,7 @@ pub const RegexState = struct {
         }
         return ErrorState;
     }
-    fn get_transition(self: *const RegexState, wc: u16) Transition {
+    fn get_transition(self: *const RegexState, wc: u21) Transition {
         for (self.transitions) |tr| {
             switch (tr.dtype) {
                 .none => continue,
@@ -363,10 +363,10 @@ pub const RegexState = struct {
         return .{ .to = ErrorState, .dtype = .none }; //.none resembling other keys resulting in the ErrorState
     }
     /// Returns a list of transitions that point to different transitions by ranges and/or points.
-    fn to_states(self: *const RegexState, allocator: std.mem.Allocator, range: Range(u16)) ![]Transition {
+    fn to_states(self: *const RegexState, allocator: std.mem.Allocator, range: Range(u21)) ![]Transition {
         var tr_list: std.ArrayListUnmanaged(Transition) = .{};
         defer tr_list.deinit(allocator);
-        var ranges_left: std.ArrayListUnmanaged(Range(u16)) = .{};
+        var ranges_left: std.ArrayListUnmanaged(Range(u21)) = .{};
         defer ranges_left.deinit(allocator);
         try ranges_left.append(allocator, range);
         for (self.transitions) |tr| {
@@ -408,7 +408,7 @@ pub const RegexState = struct {
             if (range_left.min != range_left.max) {
                 try tr_list.append(allocator, .{ .to = ErrorState, .dtype = .{ .range = range_left } });
             } else {
-                if (range_left.min <= std.math.maxInt(u16)) {
+                if (range_left.min <= std.math.maxInt(u21)) {
                     try tr_list.append(allocator, .{ .to = ErrorState, .dtype = .{ .char = @intCast(range_left.min) } });
                 } else {
                     try tr_list.append(allocator, .{ .to = ErrorState, .dtype = .{ .unicode = range_left.min } });
@@ -418,7 +418,7 @@ pub const RegexState = struct {
         std.sort.block(Transition, tr_list.items, {}, Transition.lt);
         return tr_list.toOwnedSlice(allocator);
     }
-    fn add_leftover_ranges(allocator: std.mem.Allocator, i: usize, ranges_left: *std.ArrayListUnmanaged(Range(u16)), range_split: Range(u16).RangeSplit) !void {
+    fn add_leftover_ranges(allocator: std.mem.Allocator, i: usize, ranges_left: *std.ArrayListUnmanaged(Range(u21)), range_split: Range(u21).RangeSplit) !void {
         if (range_split.l != null and range_split.u != null) { //Any non-null leftover ranges overwrites the old range at i.
             ranges_left.items[i] = range_split.u.?;
             try ranges_left.insert(allocator, i, range_split.l.?);
@@ -452,7 +452,7 @@ pub const CharacterSet = enum {
     pub fn datatypes(self: CharacterSet) []const DataType {
         return switch (self) {
             .@"." => &[_]DataType{
-                .{ .range = .{ .min = 0, .max = 0xffff } },
+                .{ .range = .{ .min = 0, .max = 0x10ffff } },
             },
             .whitespace => &[_]DataType{
                 .{ .range = .{ .min = 9, .max = 13 } },
@@ -461,14 +461,14 @@ pub const CharacterSet = enum {
             .nonwhitespace => &[_]DataType{
                 .{ .range = .{ .min = 0, .max = 8 } },
                 .{ .range = .{ .min = 14, .max = ' ' - 1 } },
-                .{ .range = .{ .min = ' ' + 1, .max = 0xffff } },
+                .{ .range = .{ .min = ' ' + 1, .max = 0x10ffff } },
             },
             .digit => &[_]DataType{
                 .{ .range = .{ .min = '0', .max = '9' } },
             },
             .nondigit => &[_]DataType{
                 .{ .range = .{ .min = 0, .max = '0' - 1 } },
-                .{ .range = .{ .min = '9' + 1, .max = 0xffff } },
+                .{ .range = .{ .min = '9' + 1, .max = 0x10ffff } },
             },
             .word => &[_]DataType{
                 .{ .range = .{ .min = '0', .max = '9' } },
@@ -481,7 +481,7 @@ pub const CharacterSet = enum {
                 .{ .range = .{ .min = '9' + 1, .max = 'A' - 1 } },
                 .{ .range = .{ .min = 'Z' + 1, .max = '_' - 1 } },
                 .{ .range = .{ .min = '_' + 1, .max = 'a' - 1 } },
-                .{ .range = .{ .min = 'z' + 1, .max = 0xffff } },
+                .{ .range = .{ .min = 'z' + 1, .max = 0x10ffff } },
             },
         };
     }
@@ -729,7 +729,7 @@ pub const RegexFSM = struct {
     pub fn add_set_complement(self: *RegexFSM) !void {
         var dtpl: DataTypePartitionList = .{};
         defer dtpl.deinit(self.allocator);
-        try dtpl.add(self.allocator, .{ .range = .{ .min = 0, .max = 0xffff } });
+        try dtpl.add(self.allocator, .{ .range = .{ .min = 0, .max = 0x10ffff } });
         for (self.set_datatypes.items) |dt| try dtpl.delete(self.allocator, dt);
         if (dtpl.list.items.len == 0) {
             std.log.err("Empty set is disallowed (all states would point to the 0 error state)\n", .{});
@@ -1282,12 +1282,14 @@ pub const RegexFSM = struct {
             self.list.deinit(allocator);
         }
     };
-    pub fn get_string_state_transitions_u8(self: RegexFSM, str: []const u8) !TransitionsGraph {
+    pub fn get_string_state_transitions(self: RegexFSM, str: []const u8) !TransitionsGraph {
         var state_now: *const RegexState = &self.states.items[1];
         var tg: std.ArrayListUnmanaged(Transition) = .{};
         errdefer tg.deinit(self.allocator);
-        for (str) |ch| {
-            const tr = state_now.get_transition(ch);
+        const utf8_view = try std.unicode.Utf8View.init(str);
+        var utf8_it = utf8_view.iterator();
+        while (utf8_it.nextCodepoint()) |cpt| {
+            const tr = state_now.get_transition(cpt);
             state_now = &self.states.items[tr.to];
             try tg.append(self.allocator, tr);
         }
@@ -1407,7 +1409,7 @@ const PowerSetHashMap = struct {
 //    try rfsm.hopcroft_algorithm();
 //    os_log_debug("Sub state machines: {any}\n", .{rfsm.substate_machines.items}, .{1});
 //    for (rfsm.states.items) |state| os_log_debug("{}\n", .{state}, .{});
-//    var tg = try rfsm.get_string_state_transitions_u8("aeij");
+//    var tg = try rfsm.get_string_state_transitions("aeij");
 //    defer tg.deinit(std.testing.allocator);
 //    os_log_debug("{any}\n-> Final state: {} ({s})\n", .{ tg.list.items, tg.final_state, if (tg.accept) "accepted" else "not accepted" }, .{});
 //}
