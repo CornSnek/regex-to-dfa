@@ -153,7 +153,7 @@ function parse_states(state_arr) {
       div_state.innerHTML = `${state_num} <em class="mark error">Error</em>`;
       const div_transition = document.createElement("div");
       td_transition.appendChild(div_transition);
-      div_transition.innerHTML = `[ <em class="mark">\\u0000</em> - <em class="mark">\\u10ffff</em> ] &#x2192; 0`;
+      div_transition.innerHTML = `[ <em class="mark">\\u0000</em> - <em class="mark">\\U10ffff</em> ] &#x2192; 0`;
       const state_f = { to_state: 0 };
       div_transition.onclick = move_to_state.bind(state_f);
     } else {
@@ -204,7 +204,7 @@ function char_or_unicode(mark_type,num) {
   if (32 <= num && num <= 126) {
     return `<em class=\"${mark_type}\">${String.fromCharCode(num)}</em>`
   } else {
-    return `<em class=\"${mark_type}\">\\u${num.toString(16).padStart(6, '0')}</em>`;
+    return `<em class=\"${mark_type}\">\\U${num.toString(16).padStart(6, '0')}</em>`;
   }
 }
 function dfa_min_and_test_regex() {

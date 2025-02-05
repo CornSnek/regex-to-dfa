@@ -41,10 +41,10 @@ pub const DataType = union(enum) {
                     try std.fmt.formatAsciiChar(@intCast(u), options, writer);
                     try writer.writeByte('\'');
                     try writer.writeAll(" \\u");
-                    try std.fmt.formatInt(u, 16, .lower, .{ .fill = '0', .width = 4 }, writer);
+                    try std.fmt.formatInt(u, 16, .lower, .{ .fill = '0', .width = 6 }, writer);
                 } else {
                     try writer.writeAll("'\\u");
-                    try std.fmt.formatInt(u, 16, .lower, .{ .fill = '0', .width = 4 }, writer);
+                    try std.fmt.formatInt(u, 16, .lower, .{ .fill = '0', .width = 6 }, writer);
                     try writer.writeByte('\'');
                 }
             },
@@ -54,10 +54,10 @@ pub const DataType = union(enum) {
                     try std.fmt.formatAsciiChar(@intCast(r.min), options, writer);
                     try writer.writeByte('\'');
                     try writer.writeAll(" \\u");
-                    try std.fmt.formatInt(r.min, 16, .lower, .{ .fill = '0', .width = 4 }, writer);
+                    try std.fmt.formatInt(r.min, 16, .lower, .{ .fill = '0', .width = 6 }, writer);
                 } else {
                     try writer.writeAll("\\u");
-                    try std.fmt.formatInt(r.min, 16, .lower, .{ .fill = '0', .width = 4 }, writer);
+                    try std.fmt.formatInt(r.min, 16, .lower, .{ .fill = '0', .width = 6 }, writer);
                     try writer.writeByte('\'');
                 }
                 try writer.writeAll(" to '");
@@ -65,10 +65,10 @@ pub const DataType = union(enum) {
                     try std.fmt.formatAsciiChar(@intCast(r.max), options, writer);
                     try writer.writeByte('\'');
                     try writer.writeAll(" \\u");
-                    try std.fmt.formatInt(r.max, 16, .lower, .{ .fill = '0', .width = 4 }, writer);
+                    try std.fmt.formatInt(r.max, 16, .lower, .{ .fill = '0', .width = 6 }, writer);
                 } else {
                     try writer.writeAll("\\u");
-                    try std.fmt.formatInt(r.max, 16, .lower, .{ .fill = '0', .width = 4 }, writer);
+                    try std.fmt.formatInt(r.max, 16, .lower, .{ .fill = '0', .width = 6 }, writer);
                     try writer.writeByte('\'');
                 }
             },

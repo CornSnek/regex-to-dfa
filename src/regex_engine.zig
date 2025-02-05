@@ -164,6 +164,7 @@ pub const RegexLexer = struct {
                             try token_array.append(.{ .tt = .{ .char = num }, .begin = ch_i - 1, .end = ch_i + 2 });
                             ch_i += 2;
                             read_i += 2;
+                            utf8_it.i += 2; //Change iterator to skip the hexadecimal letters as well.
                         },
                         'u' => {
                             if (ch_i >= regex_str.len - 4) {
@@ -174,6 +175,22 @@ pub const RegexLexer = struct {
                             try token_array.append(.{ .tt = .{ .unicode = num }, .begin = ch_i - 1, .end = ch_i + 4 });
                             ch_i += 4;
                             read_i += 4;
+                            utf8_it.i += 4;
+                        },
+                        'U' => {
+                            if (ch_i >= regex_str.len - 6) {
+                                std.log.err("\\U requires 6 hexadecimal characters to parse\n", .{});
+                                return error.LexerError;
+                            }
+                            const num = try std.fmt.parseInt(u24, regex_str[read_i + 1 .. read_i + 7], 16);
+                            if (num > 0x10ffff) {
+                                std.log.err("\\U is not supported for values greater than 0x10ffff\n", .{});
+                                return error.LexerError;
+                            }
+                            try token_array.append(.{ .tt = .{ .unicode = @intCast(num) }, .begin = ch_i - 1, .end = ch_i + 6 });
+                            ch_i += 6;
+                            read_i += 6;
+                            utf8_it.i += 6;
                         },
                         's' => try token_array.append(.{ .tt = .{ .char_set = .whitespace }, .begin = ch_i - 1, .end = ch_i }),
                         'S' => try token_array.append(.{ .tt = .{ .char_set = .nonwhitespace }, .begin = ch_i - 1, .end = ch_i }),
